@@ -37,15 +37,26 @@ services:
       - db_net
     restart: unless-stopped
 
+  fact-checker:
+    build: ./fact-checker
+    environment:
+      PORT: 5004
+      GROQ_API_KEY: ${GROQ_API_KEY}
+    networks:
+      - db_net
+    restart: unless-stopped
+
   scraper:
     build: ./scraper
     environment:
       PORT: 5002
       NEWS_SERVICE_URL: http://news-service:5001
       SUMMARIZER_URL: http://summarizer:5003
+      FACT_CHECKER_URL: http://fact-checker:5004
     depends_on:
       - news-service
       - summarizer
+      - fact-checker
     networks:
       - db_net
     restart: unless-stopped

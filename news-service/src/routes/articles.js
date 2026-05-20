@@ -36,13 +36,27 @@ router.get('/:id', async (req, res) => {
 
 router.post('/', async (req, res) => {
   try {
-    const { title, content, summary, url, source, published_at } = req.body;
+    const { title, content, summary, url, source, published_at,
+            fact_check, historical_context, context_sources, book_recommendations } = req.body;
     const { rows } = await pool.query(
-      `INSERT INTO articles (title, content, summary, url, source, published_at)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       ON CONFLICT (url) DO UPDATE SET summary = EXCLUDED.summary
+      `INSERT INTO articles
+         (title, content, summary, url, source, published_at,
+          fact_check, historical_context, context_sources, book_recommendations)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       ON CONFLICT (url) DO UPDATE SET
+         summary              = EXCLUDED.summary,
+         fact_check           = EXCLUDED.fact_check,
+         historical_context   = EXCLUDED.historical_context,
+         context_sources      = EXCLUDED.context_sources,
+         book_recommendations = EXCLUDED.book_recommendations
        RETURNING *`,
-      [title, content, summary, url, source, published_at],
+      [
+        title, content, summary, url, source, published_at,
+        fact_check           ? JSON.stringify(fact_check)           : null,
+        historical_context   ?? null,
+        context_sources      ? JSON.stringify(context_sources)      : null,
+        book_recommendations ? JSON.stringify(book_recommendations) : null,
+      ],
     );
     res.status(201).json(rows[0]);
   } catch (err) {
