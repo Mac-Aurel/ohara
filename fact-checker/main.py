@@ -4,11 +4,11 @@ import httpx
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from pydantic import BaseModel
-from groq import Groq
+from groq import AsyncGroq
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 
-groq_client: Groq | None = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
+groq_client: AsyncGroq | None = AsyncGroq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 http_client: httpx.AsyncClient
 
 
@@ -151,7 +151,7 @@ Rules:
 
     llm_result: dict = {"fact_check": None, "historical_context": None, "book_recommendations": []}
     try:
-        response = groq_client.chat.completions.create(
+        response = await groq_client.chat.completions.create(
             model="llama-3.1-8b-instant",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
