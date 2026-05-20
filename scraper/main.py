@@ -21,8 +21,8 @@ RSS_SOURCES: dict[str, str] = {
     "Le Monde":     "https://www.lemonde.fr/rss/une.xml",
 }
 
-# Caps concurrent Groq calls to respect the free-tier rate limit
-_GROQ_SEMAPHORE = asyncio.Semaphore(5)
+# Caps concurrent Groq calls to stay within the free-tier TPM limit (6000/min)
+_GROQ_SEMAPHORE = asyncio.Semaphore(2)
 
 
 class ScrapeRequest(BaseModel):
