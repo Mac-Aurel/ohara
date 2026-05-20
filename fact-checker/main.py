@@ -1,19 +1,18 @@
 import os
 import re
 import json
+import asyncio
 import httpx
-from google import genai
-from google.genai import types
+from groq import AsyncGroq
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from pydantic import BaseModel
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_MODEL   = "gemini-2.0-flash-lite"
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+GROQ_MODEL   = "llama-3.1-8b-instant"
 
-gemini_client: genai.Client | None = (
-    genai.Client(api_key=GEMINI_API_KEY)
-    if GEMINI_API_KEY else None
+groq_client: AsyncGroq | None = (
+    AsyncGroq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 )
 
 http_client: httpx.AsyncClient
@@ -114,71 +113,46 @@ def health():
 
 @app.post("/analyze")
 async def analyze(article: ArticleRequest):
-    if not gemini_client:
+    if not groq_client:
         return {
             "fact_check": None,
             "historical_context": None,
             "sources": [],
             "book_recommendations": [],
-            "error": "GEMINI_API_KEY not configured",
-
+            "error": "GROQ_API_KEY not configured",
         }
 
     wiki_sources = await _wikipedia_search(article.title)
-    wiki_context = "\n\n".join(
-        f"[{s['title']}]: {s['extract']}" for s in wiki_sources
-    )
 
-    prompt = f"""You are an expert journalist and fact-checker. Analyze this news article carefully.
+    prompt = f"""Fact-check this news article. Reply ONLY with valid JSON, no other text.
 
-ARTICLE TITLE: {article.title}
-ARTICLE CONTENT: {article.content[:2000]}
-SUMMARY: {article.summary}
+TITLE: {article.title}
+CONTENT: {article.content[:600]}
 
-WIKIPEDIA CONTEXT:
-{wiki_context or "No Wikipedia context available."}
+{{"fact_check":{{"verdict":"true|mostly_true|unverified|mostly_false|false","explanation":"1 sentence","claims":[{{"claim":"...","verdict":"true|unverified|false","explanation":"..."}}]}},"historical_context":"2 short paragraphs.","book_recommendations":[{{"title":"...","author":"...","reason":"..."}}]}}
 
-Respond ONLY with valid JSON following this exact structure:
-{{
-  "fact_check": {{
-    "verdict": "true | mostly_true | unverified | mostly_false | false",
-    "explanation": "1-2 sentences on the verdict",
-    "claims": [
-      {{
-        "claim": "verifiable claim from the article",
-        "verdict": "true | unverified | false",
-        "explanation": "one short sentence"
-      }}
-    ]
-  }},
-  "historical_context": "2 short paragraphs of background with key dates and figures.",
-  "book_recommendations": [
-    {{
-      "title": "book title",
-      "author": "author name",
-      "reason": "one sentence on relevance"
-    }}
-  ]
-}}
-
-Rules:
-- Same language as the article (French if French, English if English)
-- Max 3 claims, max 3 books
-- Be concise — short answers only"""
+Rules: same language as article, max 2 claims, max 2 books, very concise."""
 
     llm_result: dict = {"fact_check": None, "historical_context": None, "book_recommendations": []}
-    try:
-        response = await gemini_client.aio.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                max_output_tokens=1024,
+    for attempt in range(3):
+        try:
+            response = await groq_client.chat.completions.create(
+                model=GROQ_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=400,
                 temperature=0.2,
-            ),
-        )
-        llm_result = json.loads(_extract_json(response.text))
-    except Exception as exc:
-        print(f"[fact-checker] Gemini error: {exc}")
+            )
+            llm_result = json.loads(_extract_json(response.choices[0].message.content))
+            break
+        except Exception as exc:
+            err = str(exc)
+            print(f"[fact-checker] Groq error (attempt {attempt + 1}): {err}")
+            if "429" in err:
+                m = re.search(r"(\d+(?:\.\d+)?)s", err)
+                wait = float(m.group(1)) if m else 30
+                await asyncio.sleep(wait + 1)
+            else:
+                break
 
     enriched_books: list[dict] = []
     for book in llm_result.get("book_recommendations", []):
