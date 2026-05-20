@@ -2,6 +2,7 @@ import os
 import re
 import json
 import asyncio
+import unicodedata
 import httpx
 from groq import AsyncGroq
 from contextlib import asynccontextmanager
@@ -17,14 +18,40 @@ groq_client: AsyncGroq | None = (
 
 http_client: httpx.AsyncClient
 
-_STOP_WORDS = {
+# Words that appear in news headlines but make bad book search terms
+_NOISE = {
     "a", "an", "the", "and", "or", "but", "in", "on", "at", "to", "for",
     "of", "with", "by", "from", "as", "is", "are", "was", "were", "be",
-    "been", "has", "have", "had", "will", "would", "could", "says", "said",
-    "over", "after", "before", "about", "into", "than", "up", "new", "its",
-    "this", "that", "how", "why", "who", "what", "when", "where", "latest",
-    "update", "report", "live", "breaking", "news", "amid", "amid",
+    "been", "has", "have", "had", "will", "would", "could", "its", "this",
+    "that", "over", "after", "before", "about", "into", "than", "amid",
+    # news verbs / action words
+    "says", "said", "warns", "warn", "calls", "call", "hits", "hit",
+    "kills", "kill", "launches", "launch", "attacks", "attack", "strikes",
+    "strike", "announces", "announce", "annonce", "declares", "declare",
+    "backs", "back", "joins", "join", "votes", "vote", "wins", "win",
+    "loses", "lose", "urges", "urge", "seeks", "seek", "faces", "face",
+    "denies", "deny", "rejects", "reject", "approves", "approve",
+    "condemns", "condemn", "suspends", "suspend", "resigns", "resign",
+    # generic news words
+    "news", "latest", "update", "updates", "breaking", "live", "report",
+    "reports", "amid", "ahead", "deal", "talks", "crisis", "situation",
+    "more", "first", "last", "new", "old", "key", "top", "high", "low",
+    "dead", "dies", "die", "killed", "wounded", "injured",
+    # French generic words
+    "les", "des", "une", "pour", "dans", "sur", "avec", "par", "sans",
+    "plus", "lors", "apres", "avant", "selon", "face", "vers", "tout",
+    "monde", "pays", "entre", "mais", "bien", "comme",
 }
+
+
+def _ascii(text: str) -> str:
+    """Transliterate accented characters: réforme → reforme."""
+    return unicodedata.normalize("NFD", text).encode("ascii", "ignore").decode("ascii")
+
+
+def _keywords(title: str, n: int = 3) -> list[str]:
+    words = re.sub(r"[^a-z0-9\s]", "", _ascii(title).lower()).split()
+    return [w for w in words if len(w) > 3 and w not in _NOISE][:n]
 
 
 def _extract_json(text: str) -> str:
@@ -35,12 +62,6 @@ def _extract_json(text: str) -> str:
     if match:
         return match.group(0)
     return text
-
-
-def _keywords(title: str) -> str:
-    words = re.sub(r"[^a-z0-9\s]", "", title.lower()).split()
-    meaningful = [w for w in words if len(w) > 3 and w not in _STOP_WORDS]
-    return " ".join(meaningful[:4])
 
 
 @asynccontextmanager
@@ -64,7 +85,10 @@ class ArticleRequest(BaseModel):
 # Wikipedia — historical context
 # ---------------------------------------------------------------------------
 
-async def _wikipedia_search(query: str) -> list[dict]:
+async def _wikipedia_search(title: str) -> list[dict]:
+    # Search with cleaned keywords so French/accented titles work too
+    kw = _keywords(title, n=4)
+    query = " ".join(kw) if kw else title
     sources: list[dict] = []
     try:
         resp = await http_client.get(
@@ -88,10 +112,10 @@ async def _wikipedia_search(query: str) -> list[dict]:
                 if page_resp.status_code == 200:
                     data = page_resp.json()
                     sources.append({
-                        "title": data.get("title", item["title"]),
+                        "title":   data.get("title", item["title"]),
                         "extract": data.get("extract", "")[:500],
-                        "url": data.get("content_urls", {}).get("desktop", {}).get("page", ""),
-                        "type": "wikipedia",
+                        "url":     data.get("content_urls", {}).get("desktop", {}).get("page", ""),
+                        "type":    "wikipedia",
                     })
             except Exception:
                 pass
@@ -103,19 +127,14 @@ async def _wikipedia_search(query: str) -> list[dict]:
 def _build_historical_context(sources: list[dict]) -> str:
     if not sources:
         return ""
-    return "\n\n".join(
-        f"{s['title']}: {s['extract']}" for s in sources[:2]
-    )
+    return "\n\n".join(f"{s['title']}: {s['extract']}" for s in sources[:2])
 
 
 # ---------------------------------------------------------------------------
-# Open Library — book recommendations by keyword
+# Open Library — book recommendations
 # ---------------------------------------------------------------------------
 
-async def _openlibrary_search(title: str) -> list[dict]:
-    query = _keywords(title)
-    if not query:
-        return []
+async def _openlibrary_query(query: str) -> list[dict]:
     books: list[dict] = []
     try:
         resp = await http_client.get(
@@ -128,19 +147,35 @@ async def _openlibrary_search(title: str) -> list[dict]:
         )
         if resp.status_code != 200:
             return books
-        for doc in resp.json().get("docs", [])[:3]:
-            if not doc.get("title") or not doc.get("author_name"):
+        for doc in resp.json().get("docs", []):
+            if not doc.get("title"):
                 continue
             books.append({
                 "title":  doc["title"],
-                "author": doc["author_name"][0],
+                "author": (doc.get("author_name") or [""])[0],
                 "year":   doc.get("first_publish_year"),
                 "url":    f"https://openlibrary.org{doc.get('key', '')}",
                 "reason": f"Related to: {query}",
             })
+            if len(books) == 3:
+                break
     except Exception:
         pass
     return books
+
+
+async def _openlibrary_search(title: str) -> list[dict]:
+    kw = _keywords(title, n=3)
+    if not kw:
+        return []
+
+    # Try progressively broader queries until we get results
+    for n in (3, 2, 1):
+        query = " ".join(kw[:n])
+        books = await _openlibrary_query(query)
+        if books:
+            return books
+    return []
 
 
 # ---------------------------------------------------------------------------
@@ -152,13 +187,13 @@ async def _llm_fact_check(title: str, content: str) -> dict | None:
         return None
 
     prompt = (
-        f'Fact-check this news article. Reply ONLY with valid JSON.\n\n'
-        f'TITLE: {title}\n'
-        f'CONTENT: {content[:400]}\n\n'
-        f'{{"fact_check":{{"verdict":"true|mostly_true|unverified|mostly_false|false",'
-        f'"explanation":"1 sentence","claims":['
-        f'{{"claim":"...","verdict":"true|unverified|false","explanation":"..."}}]}}}}\n\n'
-        f'Rules: same language as article, max 2 claims, very concise.'
+        "Fact-check this news article. Reply ONLY with valid JSON.\n\n"
+        f"TITLE: {title}\n"
+        f"CONTENT: {content[:400]}\n\n"
+        '{"fact_check":{"verdict":"true|mostly_true|unverified|mostly_false|false",'
+        '"explanation":"1 sentence","claims":['
+        '{"claim":"...","verdict":"true|unverified|false","explanation":"..."}]}}\n\n'
+        "Rules: same language as article, max 2 claims, very concise."
     )
 
     for attempt in range(3):
@@ -193,13 +228,12 @@ def health():
 
 @app.post("/analyze")
 async def analyze(article: ArticleRequest):
-    # Run Wikipedia search and Open Library search concurrently
+    # Wikipedia + Open Library in parallel, then LLM
     wiki_sources, books = await asyncio.gather(
         _wikipedia_search(article.title),
         _openlibrary_search(article.title),
     )
 
-    # LLM does only the fact-check reasoning
     fact_check = await _llm_fact_check(article.title, article.content)
 
     return {
