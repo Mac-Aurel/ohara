@@ -1,5 +1,4 @@
 import os
-import re
 import json
 import httpx
 from contextlib import asynccontextmanager
@@ -28,16 +27,6 @@ class ArticleRequest(BaseModel):
     title: str
     content: str
     summary: str = ""
-
-
-def _extract_json(text: str) -> str:
-    match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
-    if match:
-        return match.group(1)
-    match = re.search(r"\{.*\}", text, re.DOTALL)
-    if match:
-        return match.group(0)
-    return text
 
 
 async def _wikipedia_search(query: str) -> list[dict]:
