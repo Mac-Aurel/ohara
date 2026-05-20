@@ -73,10 +73,22 @@ class ArticleRequest(BaseModel):
 # Wikipedia — fetch sources to ground the LLM
 # ---------------------------------------------------------------------------
 
+async def _wikipedia_fetch_page(title: str) -> dict | None:
+    try:
+        resp = await http_client.get(
+            "https://en.wikipedia.org/api/rest_v1/page/summary/"
+            + title.replace(" ", "_")
+        )
+        if resp.status_code == 200:
+            return resp.json()
+    except Exception:
+        pass
+    return None
+
+
 async def _wikipedia_search(title: str) -> list[dict]:
     kw = _keywords(title, n=4)
     query = " ".join(kw) if kw else title
-    sources: list[dict] = []
     try:
         resp = await http_client.get(
             "https://en.wikipedia.org/w/api.php",
@@ -84,26 +96,27 @@ async def _wikipedia_search(title: str) -> list[dict]:
                     "srlimit": 3, "format": "json"},
         )
         if resp.status_code != 200:
-            return sources
-        for item in resp.json().get("query", {}).get("search", []):
-            try:
-                page_resp = await http_client.get(
-                    "https://en.wikipedia.org/api/rest_v1/page/summary/"
-                    + item["title"].replace(" ", "_")
-                )
-                if page_resp.status_code == 200:
-                    data = page_resp.json()
-                    sources.append({
-                        "title":   data.get("title", item["title"]),
-                        "extract": data.get("extract", "")[:600],
-                        "url":     data.get("content_urls", {}).get("desktop", {}).get("page", ""),
-                        "type":    "wikipedia",
-                    })
-            except Exception:
-                pass
+            return []
+        items = resp.json().get("query", {}).get("search", [])
+
+        # Fetch all pages in parallel
+        pages = await asyncio.gather(
+            *[_wikipedia_fetch_page(item["title"]) for item in items],
+            return_exceptions=True,
+        )
+        sources: list[dict] = []
+        for item, data in zip(items, pages):
+            if not isinstance(data, dict):
+                continue
+            sources.append({
+                "title":   data.get("title", item["title"]),
+                "extract": data.get("extract", "")[:600],
+                "url":     data.get("content_urls", {}).get("desktop", {}).get("page", ""),
+                "type":    "wikipedia",
+            })
+        return sources
     except Exception:
-        pass
-    return sources
+        return []
 
 
 # ---------------------------------------------------------------------------

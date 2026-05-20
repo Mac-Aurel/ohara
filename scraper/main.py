@@ -109,7 +109,7 @@ async def _enrich_story(client: httpx.AsyncClient, rep: dict) -> None:
     async with _LLM_SEMAPHORE:
         analysis = await _fact_check(client, rep["title"], rep["content"], rep["summary"])
 
-    if not analysis:
+    if not analysis or not analysis.get("fact_check"):
         return
 
     try:
