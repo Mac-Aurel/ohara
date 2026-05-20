@@ -76,6 +76,8 @@ services:
       NEWS_SERVICE_URL: http://news-service:5001
       SCRAPER_URL: http://scraper:5002
       SUMMARIZER_URL: http://summarizer:5003
+    ports:
+      - "8080:8080"
     depends_on:
       - news-service
       - scraper
