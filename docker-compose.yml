@@ -22,6 +22,8 @@ services:
     environment:
       DATABASE_URL: postgres://journalism:journalism_pass@postgres:5432/journalism
       PORT: 5001
+    ports:
+      - "5001:5001"
     depends_on:
       postgres:
         condition: service_healthy
@@ -33,6 +35,8 @@ services:
     build: ./summarizer
     environment:
       PORT: 5003
+    ports:
+      - "5003:5003"
     networks:
       - db_net
     restart: unless-stopped
@@ -42,6 +46,8 @@ services:
     environment:
       PORT: 5004
       GROQ_API_KEY: ${GROQ_API_KEY}
+    ports:
+      - "5004:5004"
     networks:
       - db_net
     healthcheck:
@@ -58,6 +64,8 @@ services:
       NEWS_SERVICE_URL: http://news-service:5001
       SUMMARIZER_URL: http://summarizer:5003
       FACT_CHECKER_URL: http://fact-checker:5004
+    ports:
+      - "5002:5002"
     depends_on:
       news-service:
         condition: service_started

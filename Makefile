@@ -10,8 +10,9 @@ dev:
 	$(COMPOSE) up --build -d
 	@echo "Waiting for all services to be ready..."
 	@until curl -sf $(API)/health > /dev/null 2>&1; do sleep 2; done
-	@echo "Services ready. Starting scrape..."
+	@echo "Services ready. Scraping articles (this may take 1-2 min)..."
 	@curl -s -X POST $(API)/api/scrape | python3 -m json.tool
+	@echo "Done. Open http://localhost:3000"
 
 down:
 	$(COMPOSE) down
