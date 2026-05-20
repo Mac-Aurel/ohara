@@ -166,10 +166,11 @@ Rules:
             model="llama-3.1-8b-instant",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
-            max_tokens=2500,
+            max_tokens=4096,
+            response_format={"type": "json_object"},
         )
         raw = response.choices[0].message.content.strip()
-        llm_result = json.loads(_extract_json(raw))
+        llm_result = json.loads(raw)
     except Exception as exc:
         print(f"[fact-checker] Groq error: {exc}")
 
