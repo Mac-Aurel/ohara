@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 const VERDICT_CONFIG = {
   true:         { label: 'Vérifié',       className: 'verdict-true' },
@@ -101,35 +101,167 @@ function BooksSection({ books }) {
 }
 
 export default function ArticleCard({ article }) {
-  const date = article.published_at
-    ? new Date(article.published_at).toLocaleDateString('fr-FR', {
+  const [articleState, setArticleState] = useState(article);
+  const [commentAuthor, setCommentAuthor] = useState('');
+  const [commentText, setCommentText] = useState('');
+  const [commentError, setCommentError] = useState(null);
+  const [commentLoading, setCommentLoading] = useState(false);
+  const [likeLoading, setLikeLoading] = useState(false);
+  const [liked, setLiked] = useState(false);
+
+  useEffect(() => {
+    setArticleState(article);
+  }, [article]);
+
+  useEffect(() => {
+    const likedArticles = JSON.parse(localStorage.getItem('likedArticles') ?? '[]');
+    setLiked(likedArticles.includes(article.id));
+  }, [article.id]);
+
+  const date = articleState.published_at
+    ? new Date(articleState.published_at).toLocaleDateString('fr-FR', {
         day: 'numeric', month: 'long', year: 'numeric',
       })
     : null;
 
+  const comments = Array.isArray(articleState.comments) ? articleState.comments : [];
+  const likesCount = articleState.likes_count ?? 0;
+
+  async function handleLike() {
+    if (liked || likeLoading) return;
+    setLikeLoading(true);
+
+    try {
+      const res = await fetch(`/api/articles/${articleState.id}/like`, { method: 'POST' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const updated = await res.json();
+      setArticleState(updated);
+
+      const likedArticles = JSON.parse(localStorage.getItem('likedArticles') ?? '[]');
+      localStorage.setItem('likedArticles', JSON.stringify([...new Set([...likedArticles, articleState.id])]));
+      setLiked(true);
+    } finally {
+      setLikeLoading(false);
+    }
+  }
+
+  async function handleCommentSubmit(event) {
+    event.preventDefault();
+    if (commentLoading) return;
+
+    const author = commentAuthor.trim();
+    const text = commentText.trim();
+    if (!author || !text) {
+      setCommentError('Nom et commentaire sont requis.');
+      return;
+    }
+
+    setCommentLoading(true);
+    setCommentError(null);
+
+    try {
+      const res = await fetch(`/api/articles/${articleState.id}/comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ author, text }),
+      });
+
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        throw new Error(payload.error ?? `HTTP ${res.status}`);
+      }
+
+      const updated = await res.json();
+      setArticleState(updated);
+      setCommentText('');
+    } catch (error) {
+      setCommentError(error.message || 'Impossible d’ajouter le commentaire.');
+    } finally {
+      setCommentLoading(false);
+    }
+  }
+
   return (
     <article className="card">
       <div className="card-meta">
-        <span className="source">{article.source}</span>
+        <span className="source">{articleState.source}</span>
         {date && <span className="date">{date}</span>}
-        <VerdictBadge factCheck={article.fact_check} />
+        <VerdictBadge factCheck={articleState.fact_check} />
       </div>
 
       <h2 className="card-title">
-        <a href={article.url} target="_blank" rel="noopener noreferrer">
-          {article.title}
+        <a href={articleState.url} target="_blank" rel="noopener noreferrer">
+          {articleState.title}
         </a>
       </h2>
 
-      <p className="card-summary">{article.summary || article.content}</p>
+      <p className="card-summary">{articleState.summary || articleState.content}</p>
+
+      <div className="card-actions">
+        <button
+          className={`interaction-btn ${liked ? 'active' : ''}`}
+          onClick={handleLike}
+          disabled={liked || likeLoading}
+        >
+          {liked ? 'Aimé' : 'J’aime'} ({likesCount})
+        </button>
+        <span className="comments-count">{comments.length} commentaire{comments.length > 1 ? 's' : ''}</span>
+      </div>
 
       <div className="card-sections">
-        <FactCheckSection factCheck={article.fact_check} />
+        <FactCheckSection factCheck={articleState.fact_check} />
         <HistoricalSection
-          context={article.historical_context}
-          sources={article.context_sources}
+          context={articleState.historical_context}
+          sources={articleState.context_sources}
         />
-        <BooksSection books={article.book_recommendations} />
+        <BooksSection books={articleState.book_recommendations} />
+        <Section title={`Commentaires (${comments.length})`}>
+          <form className="comment-form" onSubmit={handleCommentSubmit}>
+            <input
+              className="comment-input"
+              type="text"
+              placeholder="Votre nom"
+              value={commentAuthor}
+              onChange={(event) => setCommentAuthor(event.target.value)}
+              maxLength={40}
+            />
+            <textarea
+              className="comment-textarea"
+              placeholder="Partagez votre avis sur cette actualité..."
+              value={commentText}
+              onChange={(event) => setCommentText(event.target.value)}
+              rows={3}
+              maxLength={1000}
+            />
+            {commentError && <p className="comment-error">{commentError}</p>}
+            <button className="interaction-btn submit-comment" type="submit" disabled={commentLoading}>
+              {commentLoading ? 'Envoi…' : 'Publier'}
+            </button>
+          </form>
+
+          {comments.length > 0 ? (
+            <ul className="comments-list">
+              {comments
+                .slice()
+                .reverse()
+                .map((comment) => (
+                  <li key={comment.id ?? `${comment.author}-${comment.created_at}`} className="comment-item">
+                    <div className="comment-header">
+                      <strong>{comment.author}</strong>
+                      <span>
+                        {comment.created_at
+                          ? new Date(comment.created_at).toLocaleString('fr-FR')
+                          : 'Maintenant'}
+                      </span>
+                    </div>
+                    <p className="comment-text">{comment.text}</p>
+                  </li>
+                ))}
+            </ul>
+          ) : (
+            <p className="comment-empty">Soyez le premier à réagir à cette actualité.</p>
+          )}
+        </Section>
       </div>
     </article>
   );

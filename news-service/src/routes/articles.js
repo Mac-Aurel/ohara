@@ -57,6 +57,14 @@ async function resolveStoryId(title) {
 // Routes
 // ---------------------------------------------------------------------------
 
+function normalizeArticle(row) {
+  return {
+    ...row,
+    likes_count: row.likes_count ?? 0,
+    comments: Array.isArray(row.comments) ? row.comments : [],
+  };
+}
+
 router.get('/', async (req, res) => {
   try {
     const page     = Math.max(1, parseInt(req.query.page,  10) || 1);
@@ -82,7 +90,7 @@ router.get('/', async (req, res) => {
       params,
     );
 
-    res.json(rows);
+    res.json(rows.map(normalizeArticle));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -140,7 +148,7 @@ router.get('/:id', async (req, res) => {
     if (isNaN(id)) return res.status(400).json({ error: 'Invalid article id' });
     const { rows } = await pool.query('SELECT * FROM articles WHERE id = $1', [id]);
     if (!rows.length) return res.status(404).json({ error: 'Article not found' });
-    res.json(rows[0]);
+    res.json(normalizeArticle(rows[0]));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -176,9 +184,63 @@ router.post('/', async (req, res) => {
         book_recommendations ? JSON.stringify(book_recommendations) : null,
       ],
     );
-    res.status(201).json(rows[0]);
+    res.status(201).json(normalizeArticle(rows[0]));
   } catch (err) {
     res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/:id/like', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (isNaN(id)) return res.status(400).json({ error: 'Invalid article id' });
+
+    const { rows } = await pool.query(
+      `UPDATE articles
+       SET likes_count = COALESCE(likes_count, 0) + 1
+       WHERE id = $1
+       RETURNING *`,
+      [id],
+    );
+
+    if (!rows.length) return res.status(404).json({ error: 'Article not found' });
+    res.json(normalizeArticle(rows[0]));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/:id/comments', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (isNaN(id)) return res.status(400).json({ error: 'Invalid article id' });
+
+    const author = String(req.body.author ?? '').trim().slice(0, 40);
+    const text = String(req.body.text ?? '').trim().slice(0, 1000);
+
+    if (!author || !text) {
+      return res.status(400).json({ error: 'Author and text are required' });
+    }
+
+    const comment = {
+      id: randomUUID(),
+      author,
+      text,
+      created_at: new Date().toISOString(),
+    };
+
+    const { rows } = await pool.query(
+      `UPDATE articles
+       SET comments = COALESCE(comments, '[]'::jsonb) || $2::jsonb
+       WHERE id = $1
+       RETURNING *`,
+      [id, JSON.stringify([comment])],
+    );
+
+    if (!rows.length) return res.status(404).json({ error: 'Article not found' });
+    res.status(201).json(normalizeArticle(rows[0]));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

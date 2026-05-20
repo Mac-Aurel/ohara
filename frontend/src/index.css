@@ -189,6 +189,47 @@ body {
   overflow: hidden;
 }
 
+.card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding-top: 0.25rem;
+}
+
+.interaction-btn {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 0.45rem 0.85rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.interaction-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.interaction-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.interaction-btn.active {
+  background: #fff1ef;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.comments-count {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
 /* ── Verdict badge ── */
 
 .verdict-badge {
@@ -292,6 +333,81 @@ a.book-title:hover { color: var(--accent); }
 
 .book-author { font-size: 0.75rem; color: var(--text-muted); }
 .book-reason { font-size: 0.78rem; color: var(--text-muted); font-style: italic; }
+
+/* Comments */
+
+.comment-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.comment-input,
+.comment-textarea {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #fff;
+  color: var(--text);
+  padding: 0.7rem 0.8rem;
+  font: inherit;
+}
+
+.comment-input:focus,
+.comment-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(192, 57, 43, 0.12);
+}
+
+.comment-textarea {
+  resize: vertical;
+  min-height: 88px;
+}
+
+.submit-comment {
+  align-self: flex-start;
+}
+
+.comment-error {
+  font-size: 0.78rem;
+  color: #b91c1c;
+}
+
+.comment-empty {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.comments-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.comment-item {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #fcfbf9;
+  padding: 0.75rem 0.85rem;
+}
+
+.comment-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: baseline;
+  margin-bottom: 0.3rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.comment-text {
+  font-size: 0.84rem;
+  color: var(--text);
+  line-height: 1.55;
+}
 
 /* ── Skeleton ── */
 
