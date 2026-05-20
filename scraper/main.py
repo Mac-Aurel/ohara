@@ -21,8 +21,8 @@ RSS_SOURCES: dict[str, str] = {
     "Le Monde":     "https://www.lemonde.fr/rss/une.xml",
 }
 
-# Caps concurrent Groq calls to stay within the free-tier TPM limit (6000/min)
-_GROQ_SEMAPHORE = asyncio.Semaphore(2)
+# Concurrent LLM calls
+_LLM_SEMAPHORE = asyncio.Semaphore(10)
 
 
 class ScrapeRequest(BaseModel):
@@ -106,10 +106,10 @@ async def scrape(req: ScrapeRequest = ScrapeRequest()) -> dict:
 
 async def _enrich_story(client: httpx.AsyncClient, rep: dict) -> None:
     """Fact-check the representative article and propagate to its whole story."""
-    async with _GROQ_SEMAPHORE:
+    async with _LLM_SEMAPHORE:
         analysis = await _fact_check(client, rep["title"], rep["content"], rep["summary"])
 
-    if not analysis:
+    if not analysis or not analysis.get("fact_check"):
         return
 
     try:
@@ -153,7 +153,7 @@ async def _fact_check(client: httpx.AsyncClient, title: str, content: str, summa
         resp = await client.post(
             f"{FACT_CHECKER_URL}/analyze",
             json={"title": title, "content": content, "summary": summary},
-            timeout=55.0,
+            timeout=90.0,
         )
         if resp.status_code == 200:
             return resp.json()
