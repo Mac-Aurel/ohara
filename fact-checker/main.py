@@ -1,14 +1,16 @@
+import asyncio
 import os
+import re
 import json
 import httpx
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from pydantic import BaseModel
-from groq import Groq
+from groq import AsyncGroq
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 
-groq_client: Groq | None = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
+groq_client: AsyncGroq | None = AsyncGroq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 http_client: httpx.AsyncClient
 
 
@@ -150,18 +152,27 @@ Rules:
 - Keep historical_context informative and factual"""
 
     llm_result: dict = {"fact_check": None, "historical_context": None, "book_recommendations": []}
-    try:
-        response = groq_client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.2,
-            max_tokens=4096,
-            response_format={"type": "json_object"},
-        )
-        raw = response.choices[0].message.content.strip()
-        llm_result = json.loads(raw)
-    except Exception as exc:
-        print(f"[fact-checker] Groq error: {exc}")
+    for attempt in range(4):
+        try:
+            response = await groq_client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.2,
+                max_tokens=2048,
+                response_format={"type": "json_object"},
+            )
+            llm_result = json.loads(response.choices[0].message.content.strip())
+            break
+        except Exception as exc:
+            error_str = str(exc)
+            if "429" in error_str:
+                match = re.search(r"try again in ([\d.]+)s", error_str)
+                wait = float(match.group(1)) + 1.0 if match else 15.0 * (attempt + 1)
+                print(f"[fact-checker] Rate limited, retrying in {wait:.1f}s (attempt {attempt + 1}/4)")
+                await asyncio.sleep(wait)
+            else:
+                print(f"[fact-checker] Groq error: {exc}")
+                break
 
     enriched_books: list[dict] = []
     for book in llm_result.get("book_recommendations", []):
