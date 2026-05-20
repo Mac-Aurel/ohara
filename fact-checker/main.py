@@ -180,7 +180,7 @@ Rules: same language as article, max 3 claims, max 3 books, {context_rule}"""
             response = await groq_client.chat.completions.create(
                 model=GROQ_MODEL,
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=800,
+                max_tokens=1500,
                 temperature=0.2,
             )
             return json.loads(_extract_json(response.choices[0].message.content))
@@ -212,10 +212,15 @@ async def analyze(article: ArticleRequest):
     # One LLM call: fact-check + context (grounded) + book suggestions
     result = await _llm_analyze(article.title, article.content, wiki_sources)
 
-    # Enrich LLM-suggested books with real Open Library metadata
+    # Enrich LLM-suggested books with real Open Library metadata — in parallel
+    raw_books = result.get("book_recommendations", [])
+    ol_results = await asyncio.gather(
+        *[_openlibrary_lookup(b.get("title", ""), b.get("author", "")) for b in raw_books],
+        return_exceptions=True,
+    )
     enriched_books: list[dict] = []
-    for book in result.get("book_recommendations", []):
-        ol = await _openlibrary_lookup(book.get("title", ""), book.get("author", ""))
+    for book, ol in zip(raw_books, ol_results):
+        ol = ol if isinstance(ol, dict) else None
         enriched_books.append({
             "title":  book.get("title", ""),
             "author": book.get("author", ""),

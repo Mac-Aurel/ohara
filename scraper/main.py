@@ -153,7 +153,7 @@ async def _fact_check(client: httpx.AsyncClient, title: str, content: str, summa
         resp = await client.post(
             f"{FACT_CHECKER_URL}/analyze",
             json={"title": title, "content": content, "summary": summary},
-            timeout=55.0,
+            timeout=90.0,
         )
         if resp.status_code == 200:
             return resp.json()
