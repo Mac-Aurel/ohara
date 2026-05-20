@@ -45,7 +45,7 @@ services:
     build: ./fact-checker
     environment:
       PORT: 5004
-      GROQ_API_KEY: ${GROQ_API_KEY}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
     ports:
       - "5004:5004"
     networks:

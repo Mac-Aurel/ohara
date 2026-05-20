@@ -1,16 +1,25 @@
-import asyncio
 import os
-import re
 import json
 import httpx
+import google.generativeai as genai
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from pydantic import BaseModel
-from groq import AsyncGroq
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
-groq_client: AsyncGroq | None = AsyncGroq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
+gemini_model: genai.GenerativeModel | None = None
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+    gemini_model = genai.GenerativeModel(
+        model_name="gemini-1.5-flash",
+        generation_config=genai.GenerationConfig(
+            response_mime_type="application/json",
+            max_output_tokens=1024,
+            temperature=0.2,
+        ),
+    )
+
 http_client: httpx.AsyncClient
 
 
@@ -99,13 +108,13 @@ def health():
 
 @app.post("/analyze")
 async def analyze(article: ArticleRequest):
-    if not groq_client:
+    if not gemini_model:
         return {
             "fact_check": None,
             "historical_context": None,
             "sources": [],
             "book_recommendations": [],
-            "error": "GROQ_API_KEY not configured",
+            "error": "GEMINI_API_KEY not configured",
         }
 
     wiki_sources = await _wikipedia_search(article.title)
@@ -151,27 +160,11 @@ Rules:
 - Be concise — short answers only"""
 
     llm_result: dict = {"fact_check": None, "historical_context": None, "book_recommendations": []}
-    for attempt in range(4):
-        try:
-            response = await groq_client.chat.completions.create(
-                model="llama-3.1-8b-instant",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.2,
-                max_tokens=1024,
-                response_format={"type": "json_object"},
-            )
-            llm_result = json.loads(response.choices[0].message.content.strip())
-            break
-        except Exception as exc:
-            error_str = str(exc)
-            if "429" in error_str:
-                match = re.search(r"try again in ([\d.]+)s", error_str)
-                wait = float(match.group(1)) + 1.0 if match else 15.0 * (attempt + 1)
-                print(f"[fact-checker] Rate limited, retrying in {wait:.1f}s (attempt {attempt + 1}/4)")
-                await asyncio.sleep(wait)
-            else:
-                print(f"[fact-checker] Groq error: {exc}")
-                break
+    try:
+        response = await gemini_model.generate_content_async(prompt)
+        llm_result = json.loads(response.text)
+    except Exception as exc:
+        print(f"[fact-checker] Gemini error: {exc}")
 
     enriched_books: list[dict] = []
     for book in llm_result.get("book_recommendations", []):
