@@ -1,4 +1,4 @@
-COMPOSE = docker-compose
+COMPOSE = docker compose
 API     = http://localhost:8080
 
 .PHONY: up down build logs scrape articles test
