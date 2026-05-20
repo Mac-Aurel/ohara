@@ -12,7 +12,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL   = "gemini-1.5-flash"
 
 gemini_client: genai.Client | None = (
-    genai.Client(api_key=GEMINI_API_KEY, http_options={"api_version": "v1"})
+    genai.Client(api_key=GEMINI_API_KEY)
     if GEMINI_API_KEY else None
 )
 
