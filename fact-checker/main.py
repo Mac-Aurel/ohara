@@ -12,7 +12,7 @@ gemini_model: genai.GenerativeModel | None = None
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
     gemini_model = genai.GenerativeModel(
-        model_name="gemini-1.5-flash",
+        model_name="gemini-2.0-flash",
         generation_config=genai.GenerationConfig(
             response_mime_type="application/json",
             max_output_tokens=1024,
