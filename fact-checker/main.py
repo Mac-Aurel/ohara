@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import httpx
 from google import genai
@@ -16,6 +17,16 @@ gemini_client: genai.Client | None = (
 )
 
 http_client: httpx.AsyncClient
+
+
+def _extract_json(text: str) -> str:
+    match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+    if match:
+        return match.group(1)
+    match = re.search(r"\{.*\}", text, re.DOTALL)
+    if match:
+        return match.group(0)
+    return text
 
 
 @asynccontextmanager
@@ -161,12 +172,11 @@ Rules:
             model=GEMINI_MODEL,
             contents=prompt,
             config=types.GenerateContentConfig(
-                response_mime_type="application/json",
                 max_output_tokens=1024,
                 temperature=0.2,
             ),
         )
-        llm_result = json.loads(response.text)
+        llm_result = json.loads(_extract_json(response.text))
     except Exception as exc:
         print(f"[fact-checker] Gemini error: {exc}")
 
