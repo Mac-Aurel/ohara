@@ -1,8 +1,13 @@
 import ArticleCard from './ArticleCard.jsx';
+import SkeletonCard from './SkeletonCard.jsx';
 
 export default function ArticleList({ articles, loading }) {
   if (loading) {
-    return <div className="state-msg">Chargement des articles...</div>;
+    return (
+      <div className="grid">
+        {Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} />)}
+      </div>
+    );
   }
 
   if (!articles.length) {
