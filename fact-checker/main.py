@@ -122,34 +122,33 @@ SUMMARY: {article.summary}
 WIKIPEDIA CONTEXT:
 {wiki_context or "No Wikipedia context available."}
 
-Respond ONLY with valid JSON (no markdown, no extra text) following this exact structure:
+Respond ONLY with valid JSON following this exact structure:
 {{
   "fact_check": {{
     "verdict": "true | mostly_true | unverified | mostly_false | false",
-    "explanation": "2-3 sentences summarizing the overall fact-check verdict",
+    "explanation": "1-2 sentences on the verdict",
     "claims": [
       {{
-        "claim": "a specific verifiable claim from the article",
+        "claim": "verifiable claim from the article",
         "verdict": "true | unverified | false",
-        "explanation": "brief justification"
+        "explanation": "one short sentence"
       }}
     ]
   }},
-  "historical_context": "3-4 paragraphs of historical background. Include key dates, events, and figures relevant to this article.",
+  "historical_context": "2 short paragraphs of background with key dates and figures.",
   "book_recommendations": [
     {{
-      "title": "exact book title",
-      "author": "author full name",
-      "reason": "1 sentence explaining why this book is relevant to the article topic"
+      "title": "book title",
+      "author": "author name",
+      "reason": "one sentence on relevance"
     }}
   ]
 }}
 
 Rules:
-- Use the same language as the article (French if French, English if English)
-- Suggest 3 to 5 real books relevant to the article topic
-- Be objective and cite Wikipedia context where relevant
-- Keep historical_context informative and factual"""
+- Same language as the article (French if French, English if English)
+- Max 3 claims, max 3 books
+- Be concise — short answers only"""
 
     llm_result: dict = {"fact_check": None, "historical_context": None, "book_recommendations": []}
     for attempt in range(4):
@@ -158,7 +157,7 @@ Rules:
                 model="llama-3.1-8b-instant",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.2,
-                max_tokens=2048,
+                max_tokens=1024,
                 response_format={"type": "json_object"},
             )
             llm_result = json.loads(response.choices[0].message.content.strip())
