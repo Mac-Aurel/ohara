@@ -1,0 +1,84 @@
+services:
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: journalism
+      POSTGRES_USER: journalism
+      POSTGRES_PASSWORD: journalism_pass
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - db_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U journalism"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  news-service:
+    build: ./news-service
+    environment:
+      DATABASE_URL: postgres://journalism:journalism_pass@postgres:5432/journalism
+      PORT: 5001
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - db_net
+    restart: unless-stopped
+
+  summarizer:
+    build: ./summarizer
+    environment:
+      PORT: 5003
+    networks:
+      - db_net
+    restart: unless-stopped
+
+  scraper:
+    build: ./scraper
+    environment:
+      PORT: 5002
+      NEWS_SERVICE_URL: http://news-service:5001
+      SUMMARIZER_URL: http://summarizer:5003
+    depends_on:
+      - news-service
+      - summarizer
+    networks:
+      - db_net
+    restart: unless-stopped
+
+  api-gateway:
+    build: ./api-gateway
+    environment:
+      PORT: 8080
+      NEWS_SERVICE_URL: http://news-service:5001
+      SCRAPER_URL: http://scraper:5002
+      SUMMARIZER_URL: http://summarizer:5003
+    depends_on:
+      - news-service
+      - scraper
+      - summarizer
+    networks:
+      - web_net
+      - db_net
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    depends_on:
+      - api-gateway
+    ports:
+      - "3000:80"
+    networks:
+      - web_net
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+
+networks:
+  web_net:
+  db_net:
