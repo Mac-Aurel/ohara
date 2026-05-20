@@ -1,10 +1,17 @@
 COMPOSE = docker compose
 API     = http://localhost:8080
 
-.PHONY: up down build logs scrape articles test
+.PHONY: up dev down build logs scrape articles test
 
 up:
 	$(COMPOSE) up --build
+
+dev:
+	$(COMPOSE) up --build -d
+	@echo "Waiting for all services to be ready..."
+	@until curl -sf $(API)/health > /dev/null 2>&1; do sleep 2; done
+	@echo "Services ready. Starting scrape..."
+	@curl -s -X POST $(API)/api/scrape | python3 -m json.tool
 
 down:
 	$(COMPOSE) down
