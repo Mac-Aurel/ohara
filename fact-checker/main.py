@@ -143,19 +143,13 @@ async def _llm_analyze(title: str, content: str, wiki_sources: list[dict]) -> di
 
     if wiki_sources:
         wiki_block = (
-            "WIKIPEDIA SOURCES — base the historical_context STRICTLY on these, "
-            "do not add facts not present here:\n"
+            "WIKIPEDIA SOURCES (use ONLY these for historical_context — no invented facts):\n"
             + "\n\n".join(f"[{s['title']}]: {s['extract']}" for s in wiki_sources)
         )
-        context_instruction = (
-            "2-3 paragraphs of background using ONLY facts from the Wikipedia sources above. "
-            "Cite [Source Title] when using a fact."
-        )
+        context_rule = "historical_context must use only the Wikipedia sources above, cite [Source Title] per fact."
     else:
         wiki_block = ""
-        context_instruction = (
-            "2-3 paragraphs of historical background based on your knowledge."
-        )
+        context_rule = "historical_context: write 2-3 paragraphs of background from your knowledge."
 
     prompt = f"""Analyze this news article. Reply ONLY with valid JSON, no other text.
 
@@ -164,21 +158,22 @@ CONTENT: {content[:1500]}
 
 {wiki_block}
 
+Reply with this exact JSON structure (fill in real values, not placeholders):
 {{
   "fact_check": {{
     "verdict": "true | mostly_true | unverified | mostly_false | false",
     "explanation": "2 sentences justifying the verdict",
     "claims": [
-      {{"claim": "specific verifiable claim", "verdict": "true | unverified | false", "explanation": "one sentence"}}
+      {{"claim": "a specific verifiable claim from the article", "verdict": "true | unverified | false", "explanation": "one sentence"}}
     ]
   }},
-  "historical_context": "{context_instruction}",
+  "historical_context": "...",
   "book_recommendations": [
-    {{"title": "book title", "author": "author name", "reason": "one sentence on relevance"}}
+    {{"title": "...", "author": "...", "reason": "one sentence on relevance"}}
   ]
 }}
 
-Rules: same language as article, max 3 claims, max 3 books, be concise."""
+Rules: same language as article, max 3 claims, max 3 books, {context_rule}"""
 
     for attempt in range(3):
         try:
