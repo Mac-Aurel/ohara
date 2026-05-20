@@ -21,8 +21,8 @@ RSS_SOURCES: dict[str, str] = {
     "Le Monde":     "https://www.lemonde.fr/rss/une.xml",
 }
 
-# Gemini Flash free tier: 1M TPM — 5 concurrent calls is safe
-_GROQ_SEMAPHORE = asyncio.Semaphore(5)
+# Limit concurrent LLM calls — Gemini Flash free tier: 15 RPM, 1M TPM
+_LLM_SEMAPHORE = asyncio.Semaphore(5)
 
 
 class ScrapeRequest(BaseModel):
@@ -106,7 +106,7 @@ async def scrape(req: ScrapeRequest = ScrapeRequest()) -> dict:
 
 async def _enrich_story(client: httpx.AsyncClient, rep: dict) -> None:
     """Fact-check the representative article and propagate to its whole story."""
-    async with _GROQ_SEMAPHORE:
+    async with _LLM_SEMAPHORE:
         analysis = await _fact_check(client, rep["title"], rep["content"], rep["summary"])
 
     if not analysis:
