@@ -1,24 +1,16 @@
 import os
 import json
 import httpx
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from pydantic import BaseModel
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_MODEL   = "gemini-1.5-flash"
 
-gemini_model: genai.GenerativeModel | None = None
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
-    gemini_model = genai.GenerativeModel(
-        model_name="gemini-1.5-flash-8b",
-        generation_config=genai.GenerationConfig(
-            response_mime_type="application/json",
-            max_output_tokens=1024,
-            temperature=0.2,
-        ),
-    )
+gemini_client: genai.Client | None = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
 http_client: httpx.AsyncClient
 
@@ -108,13 +100,14 @@ def health():
 
 @app.post("/analyze")
 async def analyze(article: ArticleRequest):
-    if not gemini_model:
+    if not gemini_client:
         return {
             "fact_check": None,
             "historical_context": None,
             "sources": [],
             "book_recommendations": [],
             "error": "GEMINI_API_KEY not configured",
+
         }
 
     wiki_sources = await _wikipedia_search(article.title)
@@ -161,7 +154,15 @@ Rules:
 
     llm_result: dict = {"fact_check": None, "historical_context": None, "book_recommendations": []}
     try:
-        response = await gemini_model.generate_content_async(prompt)
+        response = await gemini_client.aio.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                max_output_tokens=1024,
+                temperature=0.2,
+            ),
+        )
         llm_result = json.loads(response.text)
     except Exception as exc:
         print(f"[fact-checker] Gemini error: {exc}")
