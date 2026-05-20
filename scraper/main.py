@@ -1,7 +1,6 @@
 import os
 import time
 from datetime import datetime
-from typing import Optional
 
 import feedparser
 import httpx
@@ -23,7 +22,7 @@ RSS_SOURCES: dict[str, str] = {
 
 
 class ScrapeRequest(BaseModel):
-    sources: Optional[list[str]] = None
+    sources: list[str] | None = None
 
 
 @app.get("/health")
@@ -67,7 +66,7 @@ async def scrape(req: ScrapeRequest = ScrapeRequest()):
     return {"scraped": len(saved), "articles": saved}
 
 
-def _build_article(entry, source: str) -> Optional[dict]:
+def _build_article(entry, source: str) -> dict | None:
     title = (entry.get("title") or "").strip()
     link = (entry.get("link") or "").strip()
     if not title or not link:

@@ -5,8 +5,10 @@ const router = Router();
 
 router.get('/', async (req, res) => {
   try {
-    const { page = 1, limit = 20, source } = req.query;
-    const offset = (Number(page) - 1) * Number(limit);
+    const page  = Math.max(1, parseInt(req.query.page, 10)  || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
+    const { source } = req.query;
+    const offset = (page - 1) * limit;
 
     const { rows } = source
       ? await pool.query(
@@ -26,7 +28,9 @@ router.get('/', async (req, res) => {
 
 router.get('/:id', async (req, res) => {
   try {
-    const { rows } = await pool.query('SELECT * FROM articles WHERE id = $1', [req.params.id]);
+    const id = parseInt(req.params.id, 10);
+    if (isNaN(id)) return res.status(400).json({ error: 'Invalid article id' });
+    const { rows } = await pool.query('SELECT * FROM articles WHERE id = $1', [id]);
     if (!rows.length) return res.status(404).json({ error: 'Article not found' });
     res.json(rows[0]);
   } catch (err) {

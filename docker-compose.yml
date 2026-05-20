@@ -44,6 +44,11 @@ services:
       GROQ_API_KEY: ${GROQ_API_KEY}
     networks:
       - db_net
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:5004/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
 
   scraper:
@@ -54,9 +59,12 @@ services:
       SUMMARIZER_URL: http://summarizer:5003
       FACT_CHECKER_URL: http://fact-checker:5004
     depends_on:
-      - news-service
-      - summarizer
-      - fact-checker
+      news-service:
+        condition: service_started
+      summarizer:
+        condition: service_started
+      fact-checker:
+        condition: service_healthy
     networks:
       - db_net
     restart: unless-stopped
