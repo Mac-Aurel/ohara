@@ -189,11 +189,11 @@ async def _llm_fact_check(title: str, content: str) -> dict | None:
     prompt = (
         "Fact-check this news article. Reply ONLY with valid JSON.\n\n"
         f"TITLE: {title}\n"
-        f"CONTENT: {content[:400]}\n\n"
+        f"CONTENT: {content[:1500]}\n\n"
         '{"fact_check":{"verdict":"true|mostly_true|unverified|mostly_false|false",'
-        '"explanation":"1 sentence","claims":['
+        '"explanation":"2 sentences","claims":['
         '{"claim":"...","verdict":"true|unverified|false","explanation":"..."}]}}\n\n'
-        "Rules: same language as article, max 2 claims, very concise."
+        "Rules: same language as article, max 3 claims, concise."
     )
 
     for attempt in range(3):
@@ -201,7 +201,7 @@ async def _llm_fact_check(title: str, content: str) -> dict | None:
             response = await groq_client.chat.completions.create(
                 model=GROQ_MODEL,
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=300,
+                max_tokens=600,
                 temperature=0.2,
             )
             data = json.loads(_extract_json(response.choices[0].message.content))
