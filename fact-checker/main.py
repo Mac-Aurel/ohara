@@ -141,17 +141,28 @@ async def _llm_analyze(title: str, content: str, wiki_sources: list[dict]) -> di
     if not groq_client:
         return empty
 
-    wiki_context = "\n\n".join(
-        f"[{s['title']}]: {s['extract']}" for s in wiki_sources
-    ) or "No Wikipedia sources available."
+    if wiki_sources:
+        wiki_block = (
+            "WIKIPEDIA SOURCES — base the historical_context STRICTLY on these, "
+            "do not add facts not present here:\n"
+            + "\n\n".join(f"[{s['title']}]: {s['extract']}" for s in wiki_sources)
+        )
+        context_instruction = (
+            "2-3 paragraphs of background using ONLY facts from the Wikipedia sources above. "
+            "Cite [Source Title] when using a fact."
+        )
+    else:
+        wiki_block = ""
+        context_instruction = (
+            "2-3 paragraphs of historical background based on your knowledge."
+        )
 
     prompt = f"""Analyze this news article. Reply ONLY with valid JSON, no other text.
 
 TITLE: {title}
 CONTENT: {content[:1500]}
 
-WIKIPEDIA SOURCES — base the historical_context STRICTLY on these, do not add facts not present here:
-{wiki_context}
+{wiki_block}
 
 {{
   "fact_check": {{
@@ -161,7 +172,7 @@ WIKIPEDIA SOURCES — base the historical_context STRICTLY on these, do not add 
       {{"claim": "specific verifiable claim", "verdict": "true | unverified | false", "explanation": "one sentence"}}
     ]
   }},
-  "historical_context": "2-3 paragraphs of background using ONLY facts from the Wikipedia sources above. Cite [Source Title] when using a fact.",
+  "historical_context": "{context_instruction}",
   "book_recommendations": [
     {{"title": "book title", "author": "author name", "reason": "one sentence on relevance"}}
   ]
