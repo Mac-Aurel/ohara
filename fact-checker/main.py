@@ -18,40 +18,22 @@ groq_client: AsyncGroq | None = (
 
 http_client: httpx.AsyncClient
 
-# Words that appear in news headlines but make bad book search terms
 _NOISE = {
-    "a", "an", "the", "and", "or", "but", "in", "on", "at", "to", "for",
-    "of", "with", "by", "from", "as", "is", "are", "was", "were", "be",
-    "been", "has", "have", "had", "will", "would", "could", "its", "this",
-    "that", "over", "after", "before", "about", "into", "than", "amid",
-    # news verbs / action words
-    "says", "said", "warns", "warn", "calls", "call", "hits", "hit",
-    "kills", "kill", "launches", "launch", "attacks", "attack", "strikes",
-    "strike", "announces", "announce", "annonce", "declares", "declare",
-    "backs", "back", "joins", "join", "votes", "vote", "wins", "win",
-    "loses", "lose", "urges", "urge", "seeks", "seek", "faces", "face",
-    "denies", "deny", "rejects", "reject", "approves", "approve",
-    "condemns", "condemn", "suspends", "suspend", "resigns", "resign",
-    # generic news words
-    "news", "latest", "update", "updates", "breaking", "live", "report",
-    "reports", "amid", "ahead", "deal", "talks", "crisis", "situation",
-    "more", "first", "last", "new", "old", "key", "top", "high", "low",
-    "dead", "dies", "die", "killed", "wounded", "injured",
-    # French generic words
-    "les", "des", "une", "pour", "dans", "sur", "avec", "par", "sans",
-    "plus", "lors", "apres", "avant", "selon", "face", "vers", "tout",
-    "monde", "pays", "entre", "mais", "bien", "comme",
+    "a","an","the","and","or","but","in","on","at","to","for","of","with","by",
+    "from","as","is","are","was","were","be","been","has","have","had","will",
+    "would","could","its","this","that","over","after","before","about","into",
+    "than","amid","says","said","warns","warn","calls","call","hits","hit",
+    "kills","kill","launches","launch","attacks","attack","strikes","strike",
+    "announces","announce","annonce","declares","declare","backs","back",
+    "joins","join","votes","vote","wins","win","loses","lose","urges","urge",
+    "seeks","seek","faces","face","denies","deny","rejects","reject","news",
+    "latest","update","updates","breaking","live","report","reports","ahead",
+    "deal","talks","crisis","situation","more","first","last","new","old",
+    "key","top","high","low","dead","dies","die","killed","wounded","injured",
+    "les","des","une","pour","dans","sur","avec","par","sans","plus","lors",
+    "apres","avant","selon","face","vers","tout","monde","pays","entre","mais",
+    "bien","comme",
 }
-
-
-def _ascii(text: str) -> str:
-    """Transliterate accented characters: réforme → reforme."""
-    return unicodedata.normalize("NFD", text).encode("ascii", "ignore").decode("ascii")
-
-
-def _keywords(title: str, n: int = 3) -> list[str]:
-    words = re.sub(r"[^a-z0-9\s]", "", _ascii(title).lower()).split()
-    return [w for w in words if len(w) > 3 and w not in _NOISE][:n]
 
 
 def _extract_json(text: str) -> str:
@@ -62,6 +44,12 @@ def _extract_json(text: str) -> str:
     if match:
         return match.group(0)
     return text
+
+
+def _keywords(title: str, n: int = 4) -> list[str]:
+    normalized = unicodedata.normalize("NFD", title).encode("ascii", "ignore").decode("ascii")
+    words = re.sub(r"[^a-z0-9\s]", "", normalized.lower()).split()
+    return [w for w in words if len(w) > 3 and w not in _NOISE][:n]
 
 
 @asynccontextmanager
@@ -82,24 +70,18 @@ class ArticleRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Wikipedia — historical context
+# Wikipedia — fetch sources to ground the LLM
 # ---------------------------------------------------------------------------
 
 async def _wikipedia_search(title: str) -> list[dict]:
-    # Search with cleaned keywords so French/accented titles work too
     kw = _keywords(title, n=4)
     query = " ".join(kw) if kw else title
     sources: list[dict] = []
     try:
         resp = await http_client.get(
             "https://en.wikipedia.org/w/api.php",
-            params={
-                "action": "query",
-                "list": "search",
-                "srsearch": query,
-                "srlimit": 3,
-                "format": "json",
-            },
+            params={"action": "query", "list": "search", "srsearch": query,
+                    "srlimit": 3, "format": "json"},
         )
         if resp.status_code != 200:
             return sources
@@ -113,7 +95,7 @@ async def _wikipedia_search(title: str) -> list[dict]:
                     data = page_resp.json()
                     sources.append({
                         "title":   data.get("title", item["title"]),
-                        "extract": data.get("extract", "")[:500],
+                        "extract": data.get("extract", "")[:600],
                         "url":     data.get("content_urls", {}).get("desktop", {}).get("page", ""),
                         "type":    "wikipedia",
                     })
@@ -124,88 +106,78 @@ async def _wikipedia_search(title: str) -> list[dict]:
     return sources
 
 
-def _build_historical_context(sources: list[dict]) -> str:
-    if not sources:
-        return ""
-    return "\n\n".join(f"{s['title']}: {s['extract']}" for s in sources[:2])
-
-
 # ---------------------------------------------------------------------------
-# Open Library — book recommendations
+# Open Library — enrich LLM-suggested books with real metadata
 # ---------------------------------------------------------------------------
 
-async def _openlibrary_query(query: str) -> list[dict]:
-    books: list[dict] = []
+async def _openlibrary_lookup(title: str, author: str = "") -> dict | None:
+    query = f"{title} {author}".strip()
     try:
         resp = await http_client.get(
             "https://openlibrary.org/search.json",
-            params={
-                "q": query,
-                "fields": "title,author_name,first_publish_year,key",
-                "limit": 5,
-            },
+            params={"q": query, "fields": "title,author_name,first_publish_year,key", "limit": 1},
         )
-        if resp.status_code != 200:
-            return books
-        for doc in resp.json().get("docs", []):
-            if not doc.get("title"):
-                continue
-            books.append({
-                "title":  doc["title"],
-                "author": (doc.get("author_name") or [""])[0],
-                "year":   doc.get("first_publish_year"),
-                "url":    f"https://openlibrary.org{doc.get('key', '')}",
-                "reason": f"Related to: {query}",
-            })
-            if len(books) == 3:
-                break
+        if resp.status_code == 200:
+            docs = resp.json().get("docs", [])
+            if docs:
+                doc = docs[0]
+                return {
+                    "title":  doc.get("title", title),
+                    "author": (doc.get("author_name") or [author])[0],
+                    "year":   doc.get("first_publish_year"),
+                    "url":    f"https://openlibrary.org{doc.get('key', '')}",
+                }
     except Exception:
         pass
-    return books
-
-
-async def _openlibrary_search(title: str) -> list[dict]:
-    kw = _keywords(title, n=3)
-    if not kw:
-        return []
-
-    # Try progressively broader queries until we get results
-    for n in (3, 2, 1):
-        query = " ".join(kw[:n])
-        books = await _openlibrary_query(query)
-        if books:
-            return books
-    return []
+    return None
 
 
 # ---------------------------------------------------------------------------
-# Groq — fact-check only (verdict + claims)
+# Groq — one call: fact-check + historical context + book recommendations
 # ---------------------------------------------------------------------------
 
-async def _llm_fact_check(title: str, content: str) -> dict | None:
+async def _llm_analyze(title: str, content: str, wiki_sources: list[dict]) -> dict:
+    empty = {"fact_check": None, "historical_context": "", "book_recommendations": []}
     if not groq_client:
-        return None
+        return empty
 
-    prompt = (
-        "Fact-check this news article. Reply ONLY with valid JSON.\n\n"
-        f"TITLE: {title}\n"
-        f"CONTENT: {content[:1500]}\n\n"
-        '{"fact_check":{"verdict":"true|mostly_true|unverified|mostly_false|false",'
-        '"explanation":"2 sentences","claims":['
-        '{"claim":"...","verdict":"true|unverified|false","explanation":"..."}]}}\n\n'
-        "Rules: same language as article, max 3 claims, concise."
-    )
+    wiki_context = "\n\n".join(
+        f"[{s['title']}]: {s['extract']}" for s in wiki_sources
+    ) or "No Wikipedia sources available."
+
+    prompt = f"""Analyze this news article. Reply ONLY with valid JSON, no other text.
+
+TITLE: {title}
+CONTENT: {content[:1500]}
+
+WIKIPEDIA SOURCES — base the historical_context STRICTLY on these, do not add facts not present here:
+{wiki_context}
+
+{{
+  "fact_check": {{
+    "verdict": "true | mostly_true | unverified | mostly_false | false",
+    "explanation": "2 sentences justifying the verdict",
+    "claims": [
+      {{"claim": "specific verifiable claim", "verdict": "true | unverified | false", "explanation": "one sentence"}}
+    ]
+  }},
+  "historical_context": "2-3 paragraphs of background using ONLY facts from the Wikipedia sources above. Cite [Source Title] when using a fact.",
+  "book_recommendations": [
+    {{"title": "book title", "author": "author name", "reason": "one sentence on relevance"}}
+  ]
+}}
+
+Rules: same language as article, max 3 claims, max 3 books, be concise."""
 
     for attempt in range(3):
         try:
             response = await groq_client.chat.completions.create(
                 model=GROQ_MODEL,
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=600,
+                max_tokens=800,
                 temperature=0.2,
             )
-            data = json.loads(_extract_json(response.choices[0].message.content))
-            return data.get("fact_check")
+            return json.loads(_extract_json(response.choices[0].message.content))
         except Exception as exc:
             err = str(exc)
             print(f"[fact-checker] Groq error (attempt {attempt + 1}): {err}")
@@ -214,7 +186,7 @@ async def _llm_fact_check(title: str, content: str) -> dict | None:
                 await asyncio.sleep(float(m.group(1)) + 1 if m else 30)
             else:
                 break
-    return None
+    return empty
 
 
 # ---------------------------------------------------------------------------
@@ -228,21 +200,31 @@ def health():
 
 @app.post("/analyze")
 async def analyze(article: ArticleRequest):
-    # Wikipedia + Open Library in parallel, then LLM
-    wiki_sources, books = await asyncio.gather(
-        _wikipedia_search(article.title),
-        _openlibrary_search(article.title),
-    )
+    # Fetch Wikipedia sources first (grounds the LLM)
+    wiki_sources = await _wikipedia_search(article.title)
 
-    fact_check = await _llm_fact_check(article.title, article.content)
+    # One LLM call: fact-check + context (grounded) + book suggestions
+    result = await _llm_analyze(article.title, article.content, wiki_sources)
+
+    # Enrich LLM-suggested books with real Open Library metadata
+    enriched_books: list[dict] = []
+    for book in result.get("book_recommendations", []):
+        ol = await _openlibrary_lookup(book.get("title", ""), book.get("author", ""))
+        enriched_books.append({
+            "title":  book.get("title", ""),
+            "author": book.get("author", ""),
+            "reason": book.get("reason", ""),
+            "year":   ol["year"] if ol else None,
+            "url":    ol["url"] if ol else None,
+        })
 
     return {
-        "fact_check":         fact_check,
-        "historical_context": _build_historical_context(wiki_sources),
+        "fact_check":         result.get("fact_check"),
+        "historical_context": result.get("historical_context", ""),
         "sources": [
             {"title": s["title"], "url": s["url"], "type": "wikipedia"}
             for s in wiki_sources
         ],
-        "book_recommendations": books,
+        "book_recommendations": enriched_books,
         "error": None if groq_client else "GROQ_API_KEY not configured",
     }
