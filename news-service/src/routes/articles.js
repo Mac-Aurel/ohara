@@ -88,6 +88,31 @@ router.get('/', async (req, res) => {
   }
 });
 
+router.put('/story/:story_id/enrich', async (req, res) => {
+  try {
+    const { story_id } = req.params;
+    const { fact_check, historical_context, context_sources, book_recommendations } = req.body;
+    await pool.query(
+      `UPDATE articles
+       SET fact_check           = $1,
+           historical_context   = $2,
+           context_sources      = $3,
+           book_recommendations = $4
+       WHERE story_id = $5`,
+      [
+        fact_check           ? JSON.stringify(fact_check)           : null,
+        historical_context   ?? null,
+        context_sources      ? JSON.stringify(context_sources)      : null,
+        book_recommendations ? JSON.stringify(book_recommendations) : null,
+        story_id,
+      ],
+    );
+    res.status(204).end();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.get('/stories', async (req, res) => {
   try {
     // Returns one representative article per story with the list of sources
