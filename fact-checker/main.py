@@ -195,8 +195,9 @@ Rules: same language as article, max 3 claims, max 3 books, {context_rule}"""
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=1500,
                 temperature=0.2,
+                response_format={"type": "json_object"},
             )
-            return json.loads(_extract_json(response.choices[0].message.content))
+            return json.loads(response.choices[0].message.content)
         except Exception as exc:
             err = str(exc)
             print(f"[fact-checker] Groq error (attempt {attempt + 1}): {err}")
