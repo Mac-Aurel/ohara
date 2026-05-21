@@ -23,6 +23,15 @@ app.use(
 );
 
 app.use(
+  '/api/users',
+  createProxyMiddleware({
+    target: NEWS_SERVICE_URL,
+    changeOrigin: true,
+    pathRewrite: { '^/api/users': '/users' },
+  }),
+);
+
+app.use(
   '/api/scrape',
   createProxyMiddleware({
     target: SCRAPER_URL,

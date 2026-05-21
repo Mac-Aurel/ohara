@@ -1,7 +1,7 @@
 import ArticleCard from './ArticleCard.jsx';
 import SkeletonCard from './SkeletonCard.jsx';
 
-export default function ArticleList({ articles, loading }) {
+export default function ArticleList({ articles, loading, currentUser }) {
   if (loading) {
     return (
       <div className="grid">
@@ -22,7 +22,7 @@ export default function ArticleList({ articles, loading }) {
   return (
     <div className="grid">
       {articles.map((article) => (
-        <ArticleCard key={article.id} article={article} />
+        <ArticleCard key={article.id} article={article} currentUser={currentUser} />
       ))}
     </div>
   );

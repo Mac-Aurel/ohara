@@ -1,17 +1,34 @@
 const SOURCES = ['BBC', 'Reuters', 'The Guardian', 'Le Monde'];
 
-export default function Header({ onScrape, scraping, activeSource, onSourceChange }) {
+export default function Header({
+  onScrape,
+  scraping,
+  activeSource,
+  onSourceChange,
+  profile,
+  onEditProfile,
+  onSignOut,
+}) {
   return (
     <header className="header">
       <div className="header-content">
-        <h1 className="logo">Ohara</h1>
-        <button className="btn-refresh" onClick={onScrape} disabled={scraping}>
-          {scraping ? (
-            <><span className="spinner-sm" /> Récupération…</>
-          ) : (
-            'Actualiser les sources'
+        <h1 className="logo">Newsbook</h1>
+        <div className="header-actions">
+          {profile && (
+            <div className="profile-summary">
+              <span className="profile-user">@{profile.username}</span>
+              <button className="header-link-btn" onClick={onEditProfile}>Modifier mes sujets</button>
+              <button className="header-link-btn" onClick={onSignOut}>Changer d'utilisateur</button>
+            </div>
           )}
-        </button>
+          <button className="btn-refresh" onClick={onScrape} disabled={scraping}>
+            {scraping ? (
+              <><span className="spinner-sm" /> Recuperation...</>
+            ) : (
+              'Actualiser les sources'
+            )}
+          </button>
+        </div>
       </div>
       <div className="source-bar">
         <button
