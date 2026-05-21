@@ -34,6 +34,19 @@ function jaccardSimilarity(titleA, titleB) {
   return union === 0 ? 0 : intersection / union;
 }
 
+function getUsername(req) {
+  return String(req.header('x-user-name') ?? '').trim().slice(0, 40);
+}
+
+function parseTopics(rawTopics) {
+  if (!rawTopics) return [];
+  return String(rawTopics)
+    .split(',')
+    .map((topic) => topic.trim().toLowerCase())
+    .filter(Boolean)
+    .slice(0, 12);
+}
+
 // Finds an existing story_id among articles published in the last 48 h whose
 // title is similar enough, or mints a fresh UUID.
 async function resolveStoryId(title) {
@@ -57,11 +70,24 @@ async function resolveStoryId(title) {
 // Routes
 // ---------------------------------------------------------------------------
 
+function normalizeArticle(row, username = '') {
+  const { liked_by, relevance_score, ...article } = row;
+  const likedBy = Array.isArray(row.liked_by) ? row.liked_by : [];
+  return {
+    ...article,
+    likes_count: article.likes_count ?? 0,
+    comments: Array.isArray(article.comments) ? article.comments : [],
+    liked_by_user: username ? likedBy.includes(username) : false,
+  };
+}
+
 router.get('/', async (req, res) => {
   try {
     const page     = Math.max(1, parseInt(req.query.page,  10) || 1);
     const limit    = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
     const { source, story_id } = req.query;
+    const topics = parseTopics(req.query.topics);
+    const username = getUsername(req);
     const offset   = (page - 1) * limit;
 
     const conditions = [];
@@ -71,18 +97,28 @@ router.get('/', async (req, res) => {
     if (story_id) { params.push(story_id); conditions.push(`story_id = $${params.length}`); }
 
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const scoreTerms = [];
+
+    for (const topic of topics) {
+      params.push(`%${topic}%`);
+      scoreTerms.push(`CASE WHEN LOWER(CONCAT_WS(' ', title, summary, content, source)) LIKE $${params.length} THEN 1 ELSE 0 END`);
+    }
+
+    const scoreSelect = scoreTerms.length
+      ? `, (${scoreTerms.join(' + ')}) AS relevance_score`
+      : ', 0 AS relevance_score';
     params.push(limit, offset);
 
     const { rows } = await pool.query(
-      `SELECT * FROM articles
+      `SELECT *${scoreSelect} FROM articles
        ${where}
-       ORDER BY published_at DESC NULLS LAST
+       ORDER BY relevance_score DESC, published_at DESC NULLS LAST
        LIMIT  $${params.length - 1}
        OFFSET $${params.length}`,
       params,
     );
 
-    res.json(rows);
+    res.json(rows.map((row) => normalizeArticle(row, username)));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -137,10 +173,11 @@ router.get('/stories', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
+    const username = getUsername(req);
     if (isNaN(id)) return res.status(400).json({ error: 'Invalid article id' });
     const { rows } = await pool.query('SELECT * FROM articles WHERE id = $1', [id]);
     if (!rows.length) return res.status(404).json({ error: 'Article not found' });
-    res.json(rows[0]);
+    res.json(normalizeArticle(rows[0], username));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -176,9 +213,73 @@ router.post('/', async (req, res) => {
         book_recommendations ? JSON.stringify(book_recommendations) : null,
       ],
     );
-    res.status(201).json(rows[0]);
+    res.status(201).json(normalizeArticle(rows[0]));
   } catch (err) {
     res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/:id/like', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const username = getUsername(req);
+    if (isNaN(id)) return res.status(400).json({ error: 'Invalid article id' });
+    if (!username) return res.status(401).json({ error: 'Authentication required' });
+
+    const { rows } = await pool.query(
+      `UPDATE articles
+       SET likes_count = CASE
+             WHEN COALESCE(liked_by, '[]'::jsonb) @> to_jsonb(ARRAY[$2]::text[]) THEN COALESCE(likes_count, 0)
+             ELSE COALESCE(likes_count, 0) + 1
+           END,
+           liked_by = CASE
+             WHEN COALESCE(liked_by, '[]'::jsonb) @> to_jsonb(ARRAY[$2]::text[]) THEN COALESCE(liked_by, '[]'::jsonb)
+             ELSE COALESCE(liked_by, '[]'::jsonb) || jsonb_build_array($2)
+           END
+       WHERE id = $1
+       RETURNING *`,
+      [id, username],
+    );
+
+    if (!rows.length) return res.status(404).json({ error: 'Article not found' });
+    res.json(normalizeArticle(rows[0], username));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/:id/comments', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const username = getUsername(req);
+    if (isNaN(id)) return res.status(400).json({ error: 'Invalid article id' });
+    if (!username) return res.status(401).json({ error: 'Authentication required' });
+
+    const text = String(req.body.text ?? '').trim().slice(0, 1000);
+
+    if (!text) {
+      return res.status(400).json({ error: 'Comment text is required' });
+    }
+
+    const comment = {
+      id: randomUUID(),
+      author: username,
+      text,
+      created_at: new Date().toISOString(),
+    };
+
+    const { rows } = await pool.query(
+      `UPDATE articles
+       SET comments = COALESCE(comments, '[]'::jsonb) || $2::jsonb
+       WHERE id = $1
+       RETURNING *`,
+      [id, JSON.stringify([comment])],
+    );
+
+    if (!rows.length) return res.status(404).json({ error: 'Article not found' });
+    res.status(201).json(normalizeArticle(rows[0], username));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

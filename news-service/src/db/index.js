@@ -19,7 +19,18 @@ export async function initDB() {
       fact_check           JSONB,
       historical_context   TEXT,
       context_sources      JSONB,
-      book_recommendations JSONB
+      book_recommendations JSONB,
+      likes_count          INTEGER     DEFAULT 0,
+      comments             JSONB       DEFAULT '[]'::jsonb,
+      liked_by             JSONB       DEFAULT '[]'::jsonb
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS user_profiles (
+      username   TEXT PRIMARY KEY,
+      interests  JSONB       DEFAULT '[]'::jsonb,
+      created_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
 
@@ -29,4 +40,10 @@ export async function initDB() {
   await pool.query(`ALTER TABLE articles ADD COLUMN IF NOT EXISTS historical_context TEXT`);
   await pool.query(`ALTER TABLE articles ADD COLUMN IF NOT EXISTS context_sources JSONB`);
   await pool.query(`ALTER TABLE articles ADD COLUMN IF NOT EXISTS book_recommendations JSONB`);
+  await pool.query(`ALTER TABLE articles ADD COLUMN IF NOT EXISTS likes_count INTEGER DEFAULT 0`);
+  await pool.query(`ALTER TABLE articles ADD COLUMN IF NOT EXISTS comments JSONB DEFAULT '[]'::jsonb`);
+  await pool.query(`ALTER TABLE articles ADD COLUMN IF NOT EXISTS liked_by JSONB DEFAULT '[]'::jsonb`);
+  await pool.query(`UPDATE articles SET likes_count = 0 WHERE likes_count IS NULL`);
+  await pool.query(`UPDATE articles SET comments = '[]'::jsonb WHERE comments IS NULL`);
+  await pool.query(`UPDATE articles SET liked_by = '[]'::jsonb WHERE liked_by IS NULL`);
 }
