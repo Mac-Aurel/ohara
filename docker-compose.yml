@@ -1,113 +1,137 @@
 services:
+    postgres:
+        image: pgvector/pgvector:pg16
+        environment:
+            POSTGRES_DB: journalism
+            POSTGRES_USER: journalism
+            POSTGRES_PASSWORD: journalism_pass
+        volumes:
+            - postgres_data:/var/lib/postgresql/data
+        networks:
+            - db_net
+        healthcheck:
+            test: ["CMD-SHELL", "pg_isready -U journalism"]
+            interval: 5s
+            timeout: 5s
+            retries: 10
+        restart: unless-stopped
 
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_DB: journalism
-      POSTGRES_USER: journalism
-      POSTGRES_PASSWORD: journalism_pass
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    networks:
-      - db_net
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U journalism"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-    restart: unless-stopped
+    embeddings:
+        image: michaelf34/infinity:latest
+        command:
+            - v2
+            - --model-id
+            - BAAI/bge-small-en-v1.5
+            - --port
+            - "7997"
+        ports:
+            - "7997:7997"
+        networks:
+            - db_net
+        healthcheck:
+            test: ["CMD-SHELL", "curl -f http://localhost:7997/ || exit 1"]
+        volumes:
+            - huggingface_cache:/app/.cache
 
-  news-service:
-    build: ./news-service
-    environment:
-      DATABASE_URL: postgres://journalism:journalism_pass@postgres:5432/journalism
-      PORT: 5001
-    ports:
-      - "5001:5001"
-    depends_on:
-      postgres:
-        condition: service_healthy
-    networks:
-      - db_net
-    restart: unless-stopped
+    news-service:
+        build: ./news-service
+        environment:
+            DATABASE_URL: postgres://journalism:journalism_pass@postgres:5432/journalism
+            EMBEDDINGS_URL: http://embeddings:7997
+            PORT: 5001
+        ports:
+            - "5001:5001"
+        depends_on:
+            postgres:
+                condition: service_healthy
+            embeddings:
+                condition: service_healthy
+        networks:
+            - db_net
+        restart: unless-stopped
 
-  summarizer:
-    build: ./summarizer
-    environment:
-      PORT: 5003
-    ports:
-      - "5003:5003"
-    networks:
-      - db_net
-    restart: unless-stopped
+    summarizer:
+        build: ./summarizer
+        environment:
+            PORT: 5003
+        ports:
+            - "5003:5003"
+        networks:
+            - db_net
+        restart: unless-stopped
 
-  fact-checker:
-    build: ./fact-checker
-    environment:
-      PORT: 5004
-      GROQ_API_KEY: ${GROQ_API_KEY}
-    ports:
-      - "5004:5004"
-    networks:
-      - db_net
-    healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:5004/health')\""]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
+    fact-checker:
+        build: ./fact-checker
+        environment:
+            PORT: 5004
+            GROQ_API_KEY: ${GROQ_API_KEY}
+        ports:
+            - "5004:5004"
+        networks:
+            - db_net
+        healthcheck:
+            test:
+                [
+                    "CMD-SHELL",
+                    'python -c "import urllib.request; urllib.request.urlopen(''http://localhost:5004/health'')"',
+                ]
+            interval: 10s
+            timeout: 5s
+            retries: 5
+        restart: unless-stopped
 
-  scraper:
-    build: ./scraper
-    environment:
-      PORT: 5002
-      NEWS_SERVICE_URL: http://news-service:5001
-      SUMMARIZER_URL: http://summarizer:5003
-      FACT_CHECKER_URL: http://fact-checker:5004
-    ports:
-      - "5002:5002"
-    depends_on:
-      news-service:
-        condition: service_started
-      summarizer:
-        condition: service_started
-      fact-checker:
-        condition: service_healthy
-    networks:
-      - db_net
-    restart: unless-stopped
+    scraper:
+        build: ./scraper
+        environment:
+            PORT: 5002
+            NEWS_SERVICE_URL: http://news-service:5001
+            SUMMARIZER_URL: http://summarizer:5003
+            FACT_CHECKER_URL: http://fact-checker:5004
+        ports:
+            - "5002:5002"
+        depends_on:
+            news-service:
+                condition: service_started
+            summarizer:
+                condition: service_started
+            fact-checker:
+                condition: service_healthy
+        networks:
+            - db_net
+        restart: unless-stopped
 
-  api-gateway:
-    build: ./api-gateway
-    environment:
-      PORT: 8080
-      NEWS_SERVICE_URL: http://news-service:5001
-      SCRAPER_URL: http://scraper:5002
-      SUMMARIZER_URL: http://summarizer:5003
-    ports:
-      - "8080:8080"
-    depends_on:
-      - news-service
-      - scraper
-      - summarizer
-    networks:
-      - web_net
-      - db_net
-    restart: unless-stopped
+    api-gateway:
+        build: ./api-gateway
+        environment:
+            PORT: 8080
+            NEWS_SERVICE_URL: http://news-service:5001
+            SCRAPER_URL: http://scraper:5002
+            SUMMARIZER_URL: http://summarizer:5003
+        ports:
+            - "8080:8080"
+        depends_on:
+            - news-service
+            - scraper
+            - summarizer
+        networks:
+            - web_net
+            - db_net
+        restart: unless-stopped
 
-  frontend:
-    build: ./frontend
-    depends_on:
-      - api-gateway
-    ports:
-      - "3000:80"
-    networks:
-      - web_net
-    restart: unless-stopped
+    frontend:
+        build: ./frontend
+        depends_on:
+            - api-gateway
+        ports:
+            - "3000:80"
+        networks:
+            - web_net
+        restart: unless-stopped
 
 volumes:
-  postgres_data:
+    postgres_data:
+    huggingface_cache:
 
 networks:
-  web_net:
-  db_net:
+    web_net:
+    db_net:

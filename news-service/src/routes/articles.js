@@ -5,34 +5,8 @@ import { pool } from '../db/index.js';
 const router = Router();
 
 // ---------------------------------------------------------------------------
-// Story clustering — Jaccard similarity on normalised title tokens
+// Story clustering — Embedding used for categorization and Deduplication
 // ---------------------------------------------------------------------------
-
-const STOP_WORDS = new Set([
-  'a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
-  'of', 'with', 'by', 'from', 'as', 'is', 'are', 'was', 'were', 'be',
-  'been', 'being', 'has', 'have', 'had', 'will', 'would', 'could', 'should',
-  'may', 'might', 'can', 'it', 'its', 'this', 'that', 'over', 'after',
-  'before', 'about', 'into', 'than', 'up', 'out', 'says', 'said',
-]);
-
-function tokenize(title) {
-  return new Set(
-    title
-      .toLowerCase()
-      .replace(/[^a-z0-9\s]/g, '')
-      .split(/\s+/)
-      .filter((w) => w.length > 2 && !STOP_WORDS.has(w)),
-  );
-}
-
-function jaccardSimilarity(titleA, titleB) {
-  const setA = tokenize(titleA);
-  const setB = tokenize(titleB);
-  const intersection = [...setA].filter((w) => setB.has(w)).length;
-  const union = new Set([...setA, ...setB]).size;
-  return union === 0 ? 0 : intersection / union;
-}
 
 function getUsername(req) {
   return String(req.header('x-user-name') ?? '').trim().slice(0, 40);
@@ -47,22 +21,59 @@ function parseTopics(rawTopics) {
     .slice(0, 12);
 }
 
-// Finds an existing story_id among articles published in the last 48 h whose
-// title is similar enough, or mints a fresh UUID.
-async function resolveStoryId(title) {
-  const { rows } = await pool.query(
-    `SELECT story_id, title
-     FROM   articles
-     WHERE  story_id IS NOT NULL
-       AND  published_at > NOW() - INTERVAL '48 hours'`,
+async function getEmbedding(text) {
+  const response = await fetch(
+    `${process.env.EMBEDDINGS_URL}/embeddings`,
+    //`http://embeddings:7997/embeddings`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'BAAI/bge-small-en-v1.5',
+        input: text
+      })
+    }
   );
 
-  const SIMILARITY_THRESHOLD = 0.3;
-  for (const row of rows) {
-    if (jaccardSimilarity(title, row.title) >= SIMILARITY_THRESHOLD) {
-      return row.story_id;
+  const data = await response.json();
+
+  return data.data[0].embedding;
+}
+
+// Checks to see if any existing articles are similar enough, or mints a fresh UUID.
+async function resolveStoryId(title, embedding) {  
+
+  //console.log(`Looking up embedding for title: ${title}`);
+
+  const { rows: similar_articles } = await pool.query(
+      `SELECT
+      story_id, title,
+      1 - (embedding <=> $1::vector) AS similarity
+      FROM articles
+      ORDER BY embedding <=> $1::vector
+      LIMIT 2;`,
+      [`[${embedding.join(",")}]`]
+  )  
+
+  const SIMILARITY_THRESHOLD = 0.8;
+
+  if (similar_articles.length > 0) {
+    /* console.log(`First Entry: ${similar_articles[0].title}`)
+
+    for (const article of similar_articles) {
+      console.log(`${article.title}, with similarity ${article.similarity}`)
+    } */
+
+    if (similar_articles[0].similarity > SIMILARITY_THRESHOLD) {
+      // console.log(`Returning Story Id: ${similar_articles[0].story_id}`)
+      return similar_articles[0].story_id;
     }
   }
+
+  //console.log(`Returning Random Story Id`)
+
   return randomUUID();
 }
 
@@ -190,20 +201,25 @@ router.post('/', async (req, res) => {
       fact_check, historical_context, context_sources, book_recommendations,
     } = req.body;
 
-    const story_id = await resolveStoryId(title);
+    const embedding = await getEmbedding(title);
+
+    const story_id = await resolveStoryId(title, embedding);
+
+    //console.log(`Received Story Id: ${story_id}`)
 
     const { rows } = await pool.query(
       `INSERT INTO articles
          (title, content, summary, url, source, published_at, story_id,
-          fact_check, historical_context, context_sources, book_recommendations)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+          fact_check, historical_context, context_sources, book_recommendations, embedding)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        ON CONFLICT (url) DO UPDATE SET
          summary              = EXCLUDED.summary,
          story_id             = EXCLUDED.story_id,
          fact_check           = EXCLUDED.fact_check,
          historical_context   = EXCLUDED.historical_context,
          context_sources      = EXCLUDED.context_sources,
-         book_recommendations = EXCLUDED.book_recommendations
+         book_recommendations = EXCLUDED.book_recommendations,
+         embedding            = EXCLUDED.embedding
        RETURNING *`,
       [
         title, content, summary, url, source, published_at, story_id,
@@ -211,10 +227,13 @@ router.post('/', async (req, res) => {
         historical_context   ?? null,
         context_sources      ? JSON.stringify(context_sources)      : null,
         book_recommendations ? JSON.stringify(book_recommendations) : null,
+        `[${embedding.join(",")}]`,
       ],
     );
+    //console.log(`Successfully updated row: ${rows[0]}`)
     res.status(201).json(normalizeArticle(rows[0]));
   } catch (err) {
+    console.log(`Error Updating row: ${err.message}`)
     res.status(400).json({ error: err.message });
   }
 });

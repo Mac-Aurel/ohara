@@ -6,6 +6,10 @@ export const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 export async function initDB() {
   await pool.query(`
+    CREATE EXTENSION IF NOT EXISTS vector
+  `);
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS articles (
       id                   SERIAL PRIMARY KEY,
       title                TEXT        NOT NULL,
@@ -20,6 +24,7 @@ export async function initDB() {
       historical_context   TEXT,
       context_sources      JSONB,
       book_recommendations JSONB,
+      embedding            vector(384),
       likes_count          INTEGER     DEFAULT 0,
       comments             JSONB       DEFAULT '[]'::jsonb,
       liked_by             JSONB       DEFAULT '[]'::jsonb
