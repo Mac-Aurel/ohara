@@ -135,6 +135,45 @@ router.get('/', async (req, res) => {
   }
 });
 
+router.post('/categories', async (req, res) => {
+  const {labels, embeddings} = req.body;
+  console.log("Updating categories")
+  /* console.log(labels)
+  console.log(embeddings[0]) */
+  const values = labels.map((v, i) => `('${v}', '[${embeddings[i].join(",")}]')`).join(",")
+  try {
+
+    await pool.query(
+      `TRUNCATE TABLE categories`,
+    );
+
+    const { rows } = await pool.query(
+      `INSERT INTO categories
+         (category, embedding)
+       VALUES ${values}
+       RETURNING *`,
+    );
+
+    res.json(rows.map((row) => row.category));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/embeddings', async (req, res) => {
+  console.log("Fetching embeddings")
+  try {
+
+    const { rows } = await pool.query(
+      `SELECT title, embedding FROM articles`,
+    );
+
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.put('/story/:story_id/enrich', async (req, res) => {
   try {
     const { story_id } = req.params;

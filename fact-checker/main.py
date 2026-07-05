@@ -68,6 +68,8 @@ class ArticleRequest(BaseModel):
     content: str
     summary: str = ""
 
+class CategorizedTitles(BaseModel):
+    titles: list
 
 # ---------------------------------------------------------------------------
 # Wikipedia — fetch sources to ground the LLM
@@ -253,3 +255,39 @@ async def analyze(article: ArticleRequest):
         "book_recommendations": enriched_books,
         "error": None if groq_client else "GROQ_API_KEY not configured",
     }
+
+@app.post("/categories/titles")
+async def category_titles(data: CategorizedTitles):
+    empty = {"categories": None}
+    if not groq_client:
+        return empty
+
+    prompt = f"""Given this list of groups of titles, provide a category for each group. Reply ONLY with valid JSON, no other text.
+
+    {data.titles}
+
+    Reply with this exact JSON structure (fill in real values, not placeholders):
+
+    {{"categories": ["..."]}}
+    
+    """
+
+    for attempt in range(3):
+        try:
+            response = await groq_client.chat.completions.create(
+                model=GROQ_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=1500,
+                temperature=0.2,
+                response_format={"type": "json_object"},
+            )
+            return json.loads(response.choices[0].message.content)
+        except Exception as exc:
+            err = str(exc)
+            print(f"[fact-checker] Groq error (attempt {attempt + 1}): {err}")
+            if "429" in err:
+                m = re.search(r"(\d+(?:\.\d+)?)s", err)
+                await asyncio.sleep(float(m.group(1)) + 1 if m else 30)
+            else:
+                break
+    return empty

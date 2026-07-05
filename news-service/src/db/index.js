@@ -32,6 +32,14 @@ export async function initDB() {
   `);
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS categories (
+      id                   SERIAL PRIMARY KEY,
+      category             TEXT        NOT NULL,
+      embedding            vector(384)
+    )
+  `);
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS user_profiles (
       username   TEXT PRIMARY KEY,
       interests  JSONB       DEFAULT '[]'::jsonb,
