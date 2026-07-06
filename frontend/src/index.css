@@ -207,6 +207,12 @@ body {
   flex: 1;
 }
 
+.category {
+  font-size: 0.75rem;
+  font-style: oblique;
+  color: var(--text-muted);
+}
+
 .card-title {
   font-family: var(--serif);
   font-size: 1.05rem;

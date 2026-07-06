@@ -270,7 +270,7 @@ async def category_titles(data: CategorizedTitles):
 
     {{"categories": ["..."]}}
     
-    """
+    Rules: Provide a list of size {len(data.titles)} in the same order as the list provided, collapse each sublist into a single string, don't use the same name for two different categories"""
 
     for attempt in range(3):
         try:
@@ -281,7 +281,9 @@ async def category_titles(data: CategorizedTitles):
                 temperature=0.2,
                 response_format={"type": "json_object"},
             )
-            return json.loads(response.choices[0].message.content)
+            categories = json.loads(response.choices[0].message.content)
+            if len(categories.get("categories")) == len(data.titles):
+                return categories
         except Exception as exc:
             err = str(exc)
             print(f"[fact-checker] Groq error (attempt {attempt + 1}): {err}")

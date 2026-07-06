@@ -42,12 +42,10 @@ def summarize(req: SummarizeRequest):
 
 @app.get("/categories")
 async def refresh_categories():
-    print("Trying to get categories")
     client = httpx.AsyncClient(timeout=60.0)
     resp = await client.get(f"{NEWS_SERVICE_URL}/articles/embeddings")
     if resp.status_code != 200:
         return {"message": "error fetching embeddings"}
-    
     data = resp.json()
     titles = np.array([row.get("title") for row in data])
     embeddings = np.array([json.loads(row.get("embedding")) for row in data])
@@ -63,9 +61,6 @@ async def refresh_categories():
         cluster_titles.append(titles[(cluster_labels == label)].tolist())
         centers.append(embeddings[(cluster_labels == label)].mean(axis=0).tolist())
 
-    print(type(cluster_titles))
-    print(type(cluster_titles[0]))
-
     labels_resp = await client.post(f"{FACT_CHECKER_URL}/categories/titles", json={"titles": cluster_titles})
 
     if labels_resp.status_code != 200:
@@ -77,6 +72,5 @@ async def refresh_categories():
     else:
         return {"message": "error labeling categories"}
 
-    print(cluster_labels)
     return {"article_count": cluster_labels.size,
             "cluster_count": np.unique(cluster_labels).size}

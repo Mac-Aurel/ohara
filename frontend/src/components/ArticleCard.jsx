@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 
 const VERDICT_CONFIG = {
-  true:         { label: 'Verifie',      className: 'verdict-true' },
+  true:         { label: 'Verifié',      className: 'verdict-true' },
   mostly_true:  { label: 'Plutot vrai',  className: 'verdict-mostly-true' },
   unverified:   { label: 'Non verifie',  className: 'verdict-unverified' },
   mostly_false: { label: 'Plutot faux',  className: 'verdict-mostly-false' },
@@ -120,6 +120,7 @@ export default function ArticleCard({ article, currentUser }) {
   const comments = Array.isArray(articleState.comments) ? articleState.comments : [];
   const likesCount = articleState.likes_count ?? 0;
   const liked = Boolean(articleState.liked_by_user);
+  const category = articleState.category ?? "Other";
 
   async function handleLike() {
     if (!currentUser?.username || liked || likeLoading) return;
@@ -180,10 +181,13 @@ export default function ArticleCard({ article, currentUser }) {
 
   return (
     <article className="card">
-      <div className="card-meta">
-        <span className="source">{articleState.source}</span>
-        {date && <span className="date">{date}</span>}
-        <VerdictBadge factCheck={articleState.fact_check} />
+      <div>
+        <div className="card-meta">
+          <span className="source">{articleState.source}</span>
+          {date && <span className="date">{date}</span>}
+          <VerdictBadge factCheck={articleState.fact_check} />
+        </div>
+        {category && <span className="category">{category}</span>}
       </div>
 
       <h2 className="card-title">

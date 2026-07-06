@@ -92,6 +92,8 @@ function normalizeArticle(row, username = '') {
   };
 }
 
+const CATEGORY_THRESHOLD = 0.6;
+
 router.get('/', async (req, res) => {
   try {
     const page     = Math.max(1, parseInt(req.query.page,  10) || 1);
@@ -110,20 +112,27 @@ router.get('/', async (req, res) => {
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     const scoreTerms = [];
 
-    for (const topic of topics) {
+    /* for (const topic of topics) {
       params.push(`%${topic}%`);
       scoreTerms.push(`CASE WHEN LOWER(CONCAT_WS(' ', title, summary, content, source)) LIKE $${params.length} THEN 1 ELSE 0 END`);
     }
 
     const scoreSelect = scoreTerms.length
       ? `, (${scoreTerms.join(' + ')}) AS relevance_score`
-      : ', 0 AS relevance_score';
+      : ', 0 AS relevance_score'; */
+    const topicsCondition = topics.length ? `CASE WHEN LOWER(category) IN ('${topics.join("', '")}') THEN 0 ELSE 1 END, ` : '';
     params.push(limit, offset);
 
     const { rows } = await pool.query(
-      `SELECT *${scoreSelect} FROM articles
+      `SELECT a.id, title, content, summary, url,
+      source, published_at, created_at, story_id,
+      fact_check, historical_context, context_sources,
+      book_recommendations, likes_count, comments, liked_by, category
+      FROM articles a CROSS JOIN LATERAL 
+      (SELECT * from categories ORDER BY a.embedding <=> embedding LIMIT 1) c
        ${where}
-       ORDER BY relevance_score DESC, published_at DESC NULLS LAST
+       ORDER BY ${topicsCondition}
+       published_at DESC NULLS LAST
        LIMIT  $${params.length - 1}
        OFFSET $${params.length}`,
       params,
@@ -135,11 +144,22 @@ router.get('/', async (req, res) => {
   }
 });
 
+router.get('/categories', async (req, res) => {
+  console.log("Fetching categories")
+  try {
+
+    const { rows } = await pool.query(
+      `SELECT category FROM categories`,
+    );
+
+    res.json(rows.map((row) => row.category));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.post('/categories', async (req, res) => {
   const {labels, embeddings} = req.body;
-  console.log("Updating categories")
-  /* console.log(labels)
-  console.log(embeddings[0]) */
   const values = labels.map((v, i) => `('${v}', '[${embeddings[i].join(",")}]')`).join(",")
   try {
 
@@ -161,7 +181,6 @@ router.post('/categories', async (req, res) => {
 });
 
 router.get('/embeddings', async (req, res) => {
-  console.log("Fetching embeddings")
   try {
 
     const { rows } = await pool.query(

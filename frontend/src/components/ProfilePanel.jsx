@@ -1,25 +1,28 @@
 import { useEffect, useState } from 'react';
 
-const TOPIC_OPTIONS = [
-  'politics',
-  'economy',
-  'technology',
-  'science',
-  'health',
-  'climate',
-  'culture',
-  'sports',
-  'war',
-  'europe',
-  'middle east',
-  'artificial intelligence',
-];
-
 export default function ProfilePanel({ profile, saving, onSave, mode = 'create' }) {
+  const [topics, setTopics] = useState([]);
   const [username, setUsername] = useState(profile?.username ?? '');
   const [interests, setInterests] = useState(profile?.interests ?? []);
-  const [customTopic, setCustomTopic] = useState('');
   const [error, setError] = useState(null);
+
+  const fetchTopics = async () => {
+    try {
+      const res = await fetch('/api/articles/categories');
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+
+      const data = await res.json();
+      setTopics(data);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  useEffect(() => {
+    fetchTopics();
+  }, []);
 
   useEffect(() => {
     setUsername(profile?.username ?? '');
@@ -32,15 +35,6 @@ export default function ProfilePanel({ profile, saving, onSave, mode = 'create' 
         ? current.filter((item) => item !== topic)
         : [...current, topic]
     ));
-  }
-
-  function addCustomTopic() {
-    const value = customTopic.trim().toLowerCase();
-    if (!value) return;
-    if (!interests.includes(value)) {
-      setInterests((current) => [...current, value]);
-    }
-    setCustomTopic('');
   }
 
   function handleSubmit(event) {
@@ -89,7 +83,7 @@ export default function ProfilePanel({ profile, saving, onSave, mode = 'create' 
         <div className="topics-block">
           <span className="profile-label">Centres d’intérêt</span>
           <div className="topics-grid">
-            {TOPIC_OPTIONS.map((topic) => (
+            {topics.map((topic) => (
               <button
                 key={topic}
                 type="button"
@@ -100,25 +94,6 @@ export default function ProfilePanel({ profile, saving, onSave, mode = 'create' 
                 {topic}
               </button>
             ))}
-          </div>
-
-          <div className="custom-topic-row">
-            <input
-              className="profile-input"
-              type="text"
-              value={customTopic}
-              onChange={(event) => setCustomTopic(event.target.value)}
-              placeholder="Ajouter un sujet"
-              disabled={saving}
-            />
-            <button
-              type="button"
-              className="topic-chip add-topic-btn"
-              onClick={addCustomTopic}
-              disabled={saving}
-            >
-              Ajouter
-            </button>
           </div>
         </div>
 
