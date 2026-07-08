@@ -44,10 +44,10 @@ export default function ProfilePanel({ profile, saving, onSave, mode = 'create' 
       setError('Choisissez un nom d’utilisateur.');
       return;
     }
-    if (!interests.length) {
+    /* if (!interests.length) {
       setError('Choisissez au moins un centre d’intérêt.');
       return;
-    }
+    } */
     setError(null);
     onSave({
       username: trimmedUsername,
