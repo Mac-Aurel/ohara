@@ -5,7 +5,8 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "backfill-embeddings": "node src/scripts/backfillEmbeddings.js"
+    "backfill-embeddings": "node src/scripts/backfillEmbeddings.js",
+    "seed-categories": "node src/scripts/seedCategories.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
