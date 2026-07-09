@@ -1,74 +1,27 @@
-const SOURCES = ['BBC', 'Reuters', 'The Guardian', 'Le Monde'];
+import { Link } from 'react-router-dom';
+import { useAuth } from '../lib/auth.jsx';
 
-export default function Header({
-  onScrape,
-  scraping,
-  activeSource,
-  onSourceChange,
-  categories,
-  activeCategory,
-  onCategoryChange,
-  profile,
-  onEditProfile,
-  onSignOut,
-}) {
+export default function Header() {
+  const { username, logout } = useAuth();
+
   return (
     <header className="header">
       <div className="header-content">
-        <h1 className="logo">Newsbook</h1>
-        <div className="header-actions">
-          {profile && (
-            <div className="profile-summary">
-              <span className="profile-user">@{profile.username}</span>
-              <button className="header-link-btn" onClick={onEditProfile}>Modifier mes sujets</button>
-              <button className="header-link-btn" onClick={onSignOut}>Changer d'utilisateur</button>
-            </div>
+        <Link to="/" className="logo">Newsbook</Link>
+        <nav className="header-actions">
+          {username ? (
+            <>
+              <Link to="/profile" className="header-link-btn">@{username}</Link>
+              <button className="header-link-btn" onClick={logout}>Se déconnecter</button>
+            </>
+          ) : (
+            <>
+              <Link to="/login" className="header-link-btn">Connexion</Link>
+              <Link to="/register" className="header-link-btn">Inscription</Link>
+            </>
           )}
-          <button className="btn-refresh" onClick={onScrape} disabled={scraping}>
-            {scraping ? (
-              <><span className="spinner-sm" /> Recuperation...</>
-            ) : (
-              'Actualiser les sources'
-            )}
-          </button>
-        </div>
+        </nav>
       </div>
-      <div className="source-bar">
-        <button
-          className={`source-btn${!activeSource ? ' active' : ''}`}
-          onClick={() => onSourceChange(null)}
-        >
-          Toutes
-        </button>
-        {SOURCES.map((s) => (
-          <button
-            key={s}
-            className={`source-btn${activeSource === s ? ' active' : ''}`}
-            onClick={() => onSourceChange(s)}
-          >
-            {s}
-          </button>
-        ))}
-      </div>
-      {categories?.length > 0 && (
-        <div className="source-bar">
-          <button
-            className={`source-btn${!activeCategory ? ' active' : ''}`}
-            onClick={() => onCategoryChange(null)}
-          >
-            Toutes les catégories
-          </button>
-          {categories.map((c) => (
-            <button
-              key={c}
-              className={`source-btn${activeCategory === c ? ' active' : ''}`}
-              onClick={() => onCategoryChange(c)}
-            >
-              {c}
-            </button>
-          ))}
-        </div>
-      )}
     </header>
   );
 }
