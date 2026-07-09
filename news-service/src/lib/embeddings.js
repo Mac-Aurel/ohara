@@ -1,3 +1,5 @@
+// E5 models expect a "query: " prefix on every input, including for
+// non-retrieval uses like clustering/classification (see model card).
 export async function getEmbedding(text) {
   const response = await fetch(`${process.env.EMBEDDINGS_URL}/embeddings`, {
     method: 'POST',
@@ -5,8 +7,8 @@ export async function getEmbedding(text) {
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
-      model: 'BAAI/bge-small-en-v1.5',
-      input: text
+      model: 'intfloat/multilingual-e5-small',
+      input: `query: ${text}`
     })
   });
 
