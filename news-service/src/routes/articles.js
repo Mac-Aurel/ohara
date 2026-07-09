@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto';
 import { Router } from 'express';
 import { pool } from '../db/index.js';
+import { getEmbedding } from '../lib/embeddings.js';
 
 const router = Router();
 
@@ -19,27 +20,6 @@ function parseTopics(rawTopics) {
     .map((topic) => topic.trim().toLowerCase())
     .filter(Boolean)
     .slice(0, 12);
-}
-
-async function getEmbedding(text) {
-  const response = await fetch(
-    `${process.env.EMBEDDINGS_URL}/embeddings`,
-    //`http://embeddings:7997/embeddings`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: 'BAAI/bge-small-en-v1.5',
-        input: text
-      })
-    }
-  );
-
-  const data = await response.json();
-
-  return data.data[0].embedding;
 }
 
 // Checks to see if any existing articles are similar enough, or mints a fresh UUID.
@@ -128,8 +108,8 @@ router.get('/', async (req, res) => {
       source, published_at, created_at, story_id,
       fact_check, historical_context, context_sources,
       book_recommendations, likes_count, comments, liked_by, category
-      FROM articles a CROSS JOIN LATERAL 
-      (SELECT * from categories ORDER BY a.embedding <=> embedding LIMIT 1) c
+      FROM articles a LEFT JOIN LATERAL
+      (SELECT * from categories ORDER BY a.embedding <=> embedding LIMIT 1) c ON true
        ${where}
        ORDER BY ${topicsCondition}
        published_at DESC NULLS LAST
@@ -184,7 +164,7 @@ router.get('/embeddings', async (req, res) => {
   try {
 
     const { rows } = await pool.query(
-      `SELECT title, embedding FROM articles`,
+      `SELECT title, embedding FROM articles WHERE embedding IS NOT NULL`,
     );
 
     res.json(rows);
