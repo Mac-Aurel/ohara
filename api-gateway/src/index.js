@@ -9,6 +9,7 @@ const PORT = process.env.PORT || 8080;
 const NEWS_SERVICE_URL = process.env.NEWS_SERVICE_URL || 'http://news-service:5001';
 const SCRAPER_URL = process.env.SCRAPER_URL || 'http://scraper:5002';
 const SUMMARIZER_URL = process.env.SUMMARIZER_URL || 'http://summarizer:5003';
+const RAG_SERVICE_URL = process.env.RAG_SERVICE_URL || 'http://rag-service:5005';
 
 app.use(cors());
 app.use(morgan('combined'));
@@ -46,6 +47,15 @@ app.use(
     target: SUMMARIZER_URL,
     changeOrigin: true,
     pathRewrite: { '^/api/summarize': '/summarize' },
+  }),
+);
+
+app.use(
+  '/api/rag',
+  createProxyMiddleware({
+    target: RAG_SERVICE_URL,
+    changeOrigin: true,
+    pathRewrite: { '^/api/rag': '' },
   }),
 );
 

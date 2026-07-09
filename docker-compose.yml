@@ -80,6 +80,24 @@ services:
             retries: 5
         restart: unless-stopped
 
+    rag-service:
+        build: ./rag-service
+        environment:
+            PORT: 5005
+            NEWS_SERVICE_URL: http://news-service:5001
+            EMBEDDINGS_URL: http://embeddings:7997
+            GROQ_API_KEY: ${GROQ_API_KEY}
+        ports:
+            - "5005:5005"
+        depends_on:
+            news-service:
+                condition: service_started
+            embeddings:
+                condition: service_healthy
+        networks:
+            - db_net
+        restart: unless-stopped
+
     scraper:
         build: ./scraper
         environment:
@@ -87,6 +105,7 @@ services:
             NEWS_SERVICE_URL: http://news-service:5001
             SUMMARIZER_URL: http://summarizer:5003
             FACT_CHECKER_URL: http://fact-checker:5004
+            RAG_SERVICE_URL: http://rag-service:5005
         ports:
             - "5002:5002"
         depends_on:
@@ -96,6 +115,8 @@ services:
                 condition: service_started
             fact-checker:
                 condition: service_healthy
+            rag-service:
+                condition: service_started
         networks:
             - db_net
         restart: unless-stopped
@@ -107,12 +128,14 @@ services:
             NEWS_SERVICE_URL: http://news-service:5001
             SCRAPER_URL: http://scraper:5002
             SUMMARIZER_URL: http://summarizer:5003
+            RAG_SERVICE_URL: http://rag-service:5005
         ports:
             - "8080:8080"
         depends_on:
             - news-service
             - scraper
             - summarizer
+            - rag-service
         networks:
             - web_net
             - db_net
