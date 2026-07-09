@@ -5,6 +5,9 @@ export default function Header({
   scraping,
   activeSource,
   onSourceChange,
+  categories,
+  activeCategory,
+  onCategoryChange,
   profile,
   onEditProfile,
   onSignOut,
@@ -47,6 +50,25 @@ export default function Header({
           </button>
         ))}
       </div>
+      {categories?.length > 0 && (
+        <div className="source-bar">
+          <button
+            className={`source-btn${!activeCategory ? ' active' : ''}`}
+            onClick={() => onCategoryChange(null)}
+          >
+            Toutes les catégories
+          </button>
+          {categories.map((c) => (
+            <button
+              key={c}
+              className={`source-btn${activeCategory === c ? ' active' : ''}`}
+              onClick={() => onCategoryChange(c)}
+            >
+              {c}
+            </button>
+          ))}
+        </div>
+      )}
     </header>
   );
 }

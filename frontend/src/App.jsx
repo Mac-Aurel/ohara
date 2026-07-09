@@ -12,16 +12,19 @@ export default function App() {
   const [scraping, setScraping]     = useState(false);
   const [error, setError]           = useState(null);
   const [activeSource, setSource]   = useState(null);
+  const [categories, setCategories] = useState([]);
+  const [activeCategory, setCategory] = useState(null);
   const [profile, setProfile]       = useState(null);
   const [profileLoading, setProfileLoading] = useState(true);
   const [profileSaving, setProfileSaving] = useState(false);
   const [editingProfile, setEditingProfile] = useState(false);
   const pollTimer                   = useRef(null);
 
-  const fetchArticles = useCallback(async (source = activeSource, userProfile = profile) => {
+  const fetchArticles = useCallback(async (source = activeSource, userProfile = profile, category = activeCategory) => {
     try {
       const params = new URLSearchParams();
       if (source) params.set('source', source);
+      if (category) params.set('category', category);
       if (userProfile?.interests?.length) params.set('topics', userProfile.interests.join(','));
 
       const query = params.toString();
@@ -40,7 +43,17 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, [activeSource, profile]);
+  }, [activeSource, activeCategory, profile]);
+
+  const loadCategories = useCallback(async () => {
+    try {
+      const res = await fetch('/api/articles/categories');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setCategories(await res.json());
+    } catch {
+      setCategories([]);
+    }
+  }, []);
 
   const loadProfile = useCallback(async () => {
     const storedUsername = localStorage.getItem(PROFILE_STORAGE_KEY);
@@ -75,7 +88,8 @@ export default function App() {
 
   useEffect(() => {
     loadProfile();
-  }, [loadProfile]);
+    loadCategories();
+  }, [loadProfile, loadCategories]);
 
   useEffect(() => {
     if (profileLoading || !profile) {
@@ -83,8 +97,8 @@ export default function App() {
       return;
     }
     setLoading(true);
-    fetchArticles(activeSource, profile);
-  }, [activeSource, fetchArticles, profile, profileLoading]);
+    fetchArticles(activeSource, profile, activeCategory);
+  }, [activeSource, activeCategory, fetchArticles, profile, profileLoading]);
 
   const triggerScrape = () => {
     setScraping(true);
@@ -101,6 +115,12 @@ export default function App() {
     setSource(source);
     setLoading(true);
     fetchArticles(source);
+  };
+
+  const handleCategoryChange = (category) => {
+    setCategory(category);
+    setLoading(true);
+    fetchArticles(activeSource, profile, category);
   };
 
   const handleProfileSave = async (nextProfile) => {
@@ -152,6 +172,9 @@ export default function App() {
         scraping={scraping}
         activeSource={activeSource}
         onSourceChange={handleSourceChange}
+        categories={categories}
+        activeCategory={activeCategory}
+        onCategoryChange={handleCategoryChange}
         profile={profile}
         onEditProfile={() => setEditingProfile(true)}
         onSignOut={handleSignOut}

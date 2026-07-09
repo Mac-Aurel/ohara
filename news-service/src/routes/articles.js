@@ -78,7 +78,7 @@ router.get('/', async (req, res) => {
   try {
     const page     = Math.max(1, parseInt(req.query.page,  10) || 1);
     const limit    = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
-    const { source, story_id } = req.query;
+    const { source, story_id, category } = req.query;
     const topics = parseTopics(req.query.topics);
     const username = getUsername(req);
     const offset   = (page - 1) * limit;
@@ -88,6 +88,7 @@ router.get('/', async (req, res) => {
 
     if (source)   { params.push(source);   conditions.push(`source = $${params.length}`);   }
     if (story_id) { params.push(story_id); conditions.push(`story_id = $${params.length}`); }
+    if (category) { params.push(category); conditions.push(`c.category = $${params.length}`); }
 
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     const scoreTerms = [];
