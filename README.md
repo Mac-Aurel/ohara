@@ -69,7 +69,8 @@ API Gateway (port 8080)
   │                                 ├── Groq API           [verdict + contexte + livres]
   │                                 ├── Wikipedia API      [sources historiques]
   │                                 └── Open Library API   [métadonnées livres]
-  ├── /api/auth      ──► auth-service (5005)               [à venir]
+  ├── /api/users     ──► news-service (5001)               [register/login JWT]
+  ├── /api/rag       ──► rag-service (5005)                [recherche + chat]
   └── /api/debates   ──► debate-service (5006)             [à venir]
 ```
 
@@ -114,7 +115,7 @@ Voir issue [#11](https://github.com/Mac-Aurel/ohara/issues/11) pour les étapes 
 
 | Feature | Issue | Statut |
 |---|---|---|
-| Auth utilisateurs JWT | [#4](https://github.com/Mac-Aurel/ohara/issues/4) | ⬜ à faire |
+| Auth utilisateurs JWT | [#4](https://github.com/Mac-Aurel/ohara/issues/4) | ✅ fait |
 | Débats threadés | [#5](https://github.com/Mac-Aurel/ohara/issues/5) | ⬜ à faire |
 | Frontend v2 (débats + auth) | [#6](https://github.com/Mac-Aurel/ohara/issues/6) | 🔄 en cours |
 | Scheduling cron-job.org | [#10](https://github.com/Mac-Aurel/ohara/issues/10) | ⬜ à faire |
