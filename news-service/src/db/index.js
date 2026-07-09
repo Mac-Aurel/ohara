@@ -47,6 +47,18 @@ export async function initDB() {
     )
   `);
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS article_chunks (
+      id          SERIAL PRIMARY KEY,
+      article_id  INTEGER     NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
+      chunk_index INTEGER     NOT NULL,
+      text        TEXT        NOT NULL,
+      embedding   vector(384),
+      created_at  TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (article_id, chunk_index)
+    )
+  `);
+
   // Migrate existing tables
   await pool.query(`ALTER TABLE articles ADD COLUMN IF NOT EXISTS story_id UUID`);
   await pool.query(`ALTER TABLE articles ADD COLUMN IF NOT EXISTS fact_check JSONB`);
@@ -60,4 +72,13 @@ export async function initDB() {
   await pool.query(`UPDATE articles SET likes_count = 0 WHERE likes_count IS NULL`);
   await pool.query(`UPDATE articles SET comments = '[]'::jsonb WHERE comments IS NULL`);
   await pool.query(`UPDATE articles SET liked_by = '[]'::jsonb WHERE liked_by IS NULL`);
+
+  // Keyword search uses 'simple' (no stemming/stopwords) rather than
+  // 'english' — the corpus mixes English and French (Le Monde) content.
+  await pool.query(`
+    ALTER TABLE article_chunks ADD COLUMN IF NOT EXISTS tsv tsvector
+      GENERATED ALWAYS AS (to_tsvector('simple', text)) STORED
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_article_chunks_tsv ON article_chunks USING GIN (tsv)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_article_chunks_article_id ON article_chunks (article_id)`);
 }

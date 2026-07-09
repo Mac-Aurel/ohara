@@ -185,6 +185,23 @@ router.get('/stories', async (req, res) => {
   }
 });
 
+router.get('/unchunked', async (req, res) => {
+  try {
+    const limit = Math.min(200, Math.max(1, parseInt(req.query.limit, 10) || 50));
+    const { rows } = await pool.query(
+      `SELECT a.id, a.title, a.content
+       FROM articles a
+       WHERE a.content IS NOT NULL
+         AND NOT EXISTS (SELECT 1 FROM article_chunks c WHERE c.article_id = a.id)
+       LIMIT $1`,
+      [limit],
+    );
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.get('/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
@@ -239,6 +256,25 @@ router.post('/', async (req, res) => {
   } catch (err) {
     console.log(`Error Updating row: ${err.message}`)
     res.status(400).json({ error: err.message });
+  }
+});
+
+router.put('/:id/content', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const content = String(req.body.content ?? '').trim();
+    if (isNaN(id)) return res.status(400).json({ error: 'Invalid article id' });
+    if (!content) return res.status(400).json({ error: 'content is required' });
+
+    const { rows } = await pool.query(
+      'UPDATE articles SET content = $1 WHERE id = $2 RETURNING id',
+      [content, id],
+    );
+
+    if (!rows.length) return res.status(404).json({ error: 'Article not found' });
+    res.status(204).end();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
