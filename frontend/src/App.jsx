@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import ArticleList from './components/ArticleList.jsx';
+import AskPanel from './components/AskPanel.jsx';
 import Header from './components/Header.jsx';
 import ProfilePanel from './components/ProfilePanel.jsx';
 
@@ -192,6 +193,7 @@ export default function App() {
           />
         ) : (
           <>
+            <AskPanel />
             <p className="feed-hint">
               Fil personnalisé pour <strong>{profile.username}</strong> selon :
               {' '}

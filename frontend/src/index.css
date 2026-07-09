@@ -148,6 +148,56 @@ body {
 .source-btn:hover  { border-color: var(--accent); color: var(--accent); }
 .source-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 
+/* ── Ask panel (semantic search & chat) ── */
+
+.ask-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.25rem 1.5rem;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  margin-bottom: 1.5rem;
+}
+
+.ask-toggle { display: flex; gap: 0.5rem; }
+
+.ask-form { display: flex; gap: 0.65rem; }
+.ask-form .comment-input { flex: 1; }
+.ask-submit { flex-shrink: 0; }
+
+.ask-results {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.ask-result-item {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.85rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.ask-answer {
+  border-top: 1px solid var(--border);
+  padding-top: 0.85rem;
+  font-size: 0.9rem;
+  line-height: 1.65;
+}
+
+.ask-sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  margin-top: 0.6rem;
+}
+
 /* ── Main layout ── */
 
 .main {
