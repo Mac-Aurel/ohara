@@ -5,6 +5,7 @@ from datetime import datetime
 
 import feedparser
 import httpx
+import trafilatura
 from fastapi import FastAPI
 from pydantic import BaseModel
 
@@ -13,6 +14,13 @@ app = FastAPI(title="Scraper Service")
 NEWS_SERVICE_URL = os.getenv("NEWS_SERVICE_URL", "http://news-service:5001")
 SUMMARIZER_URL   = os.getenv("SUMMARIZER_URL",   "http://summarizer:5003")
 FACT_CHECKER_URL = os.getenv("FACT_CHECKER_URL", "http://fact-checker:5004")
+RAG_SERVICE_URL  = os.getenv("RAG_SERVICE_URL",  "http://rag-service:5005")
+
+# A full article body is only trusted over the RSS teaser once it clears
+# this floor — shorter than that and it's more likely a paywalled preview
+# than the real article.
+_MIN_FULL_BODY_LENGTH = 500
+_FETCH_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; OharaBot/1.0)"}
 
 RSS_SOURCES: dict[str, str] = {
     "BBC":          "https://feeds.bbci.co.uk/news/world/rss.xml",
@@ -23,6 +31,10 @@ RSS_SOURCES: dict[str, str] = {
 
 # Concurrent LLM calls
 _LLM_SEMAPHORE = asyncio.Semaphore(10)
+
+# Concurrent full-article-page fetches — kept modest to stay a well-behaved
+# client of 4 external news sites.
+_FETCH_SEMAPHORE = asyncio.Semaphore(8)
 
 
 class ScrapeRequest(BaseModel):
@@ -55,6 +67,15 @@ async def scrape(req: ScrapeRequest = ScrapeRequest()) -> dict:
     ]
 
     async with httpx.AsyncClient(timeout=60.0) as client:
+
+        # -------------------------------------------------------------- #
+        # Phase 1b — Fetch each article's full page and extract its body #
+        #   Falls back to the RSS teaser already in `content` on any     #
+        #   failure (timeout, non-200, extraction miss, paywall preview  #
+        #   shorter than the teaser). Must run before summarize/save:    #
+        #   `content` is written once at insert and never updated later. #
+        # -------------------------------------------------------------- #
+        await asyncio.gather(*[_fill_full_body(client, a) for a in raw])
 
         # -------------------------------------------------------------- #
         # Phase 2 — Summarize all articles concurrently (local, fast)    #
@@ -101,6 +122,15 @@ async def scrape(req: ScrapeRequest = ScrapeRequest()) -> dict:
             return_exceptions=True,
         )
 
+        # -------------------------------------------------------------- #
+        # Phase 6 — Trigger RAG re-indexing (fire-and-forget)            #
+        #   Short timeout, never allowed to fail the scrape response.    #
+        # -------------------------------------------------------------- #
+        try:
+            await client.post(f"{RAG_SERVICE_URL}/index", timeout=5.0)
+        except Exception as exc:
+            print(f"[scraper] failed to trigger rag-service indexing: {exc}")
+
     return {"scraped": len(saved), "stories": len(stories)}
 
 
@@ -124,6 +154,26 @@ async def _enrich_story(client: httpx.AsyncClient, rep: dict) -> None:
         )
     except Exception as exc:
         print(f"[scraper] failed to enrich story {rep['story_id']}: {exc}")
+
+
+async def _fill_full_body(client: httpx.AsyncClient, article: dict) -> None:
+    """Best-effort: replace the RSS teaser in `article["content"]` with the
+    full page body. Leaves the teaser untouched on any failure."""
+    body = await _fetch_full_body(client, article["url"])
+    teaser = article["content"]
+    if body and len(body) >= _MIN_FULL_BODY_LENGTH and len(body) > len(teaser):
+        article["content"] = body
+
+
+async def _fetch_full_body(client: httpx.AsyncClient, url: str) -> str | None:
+    async with _FETCH_SEMAPHORE:
+        try:
+            resp = await client.get(url, headers=_FETCH_HEADERS, timeout=12.0, follow_redirects=True)
+            if resp.status_code != 200:
+                return None
+            return trafilatura.extract(resp.text)
+        except Exception:
+            return None
 
 
 async def _save(client: httpx.AsyncClient, article: dict) -> dict | None:
