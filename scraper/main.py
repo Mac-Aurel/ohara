@@ -101,8 +101,6 @@ async def scrape(req: ScrapeRequest = ScrapeRequest()) -> dict:
             return_exceptions=True,
         )
 
-        await client.get(f"{SUMMARIZER_URL}/categories")
-
     return {"scraped": len(saved), "stories": len(stories)}
 
 
