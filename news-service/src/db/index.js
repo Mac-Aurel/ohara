@@ -81,4 +81,6 @@ export async function initDB() {
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_article_chunks_tsv ON article_chunks USING GIN (tsv)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_article_chunks_article_id ON article_chunks (article_id)`);
+
+  await pool.query(`ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS password_hash TEXT`);
 }

@@ -2,16 +2,13 @@ import { randomUUID } from 'crypto';
 import { Router } from 'express';
 import { pool } from '../db/index.js';
 import { getEmbedding } from '../lib/embeddings.js';
+import { optionalAuth, requireAuth } from '../middleware/requireAuth.js';
 
 const router = Router();
 
 // ---------------------------------------------------------------------------
 // Story clustering — Embedding used for categorization and Deduplication
 // ---------------------------------------------------------------------------
-
-function getUsername(req) {
-  return String(req.header('x-user-name') ?? '').trim().slice(0, 40);
-}
 
 function parseTopics(rawTopics) {
   if (!rawTopics) return [];
@@ -74,13 +71,13 @@ function normalizeArticle(row, username = '') {
 
 const CATEGORY_THRESHOLD = 0.6;
 
-router.get('/', async (req, res) => {
+router.get('/', optionalAuth, async (req, res) => {
   try {
     const page     = Math.max(1, parseInt(req.query.page,  10) || 1);
     const limit    = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
     const { source, story_id, category } = req.query;
     const topics = parseTopics(req.query.topics);
-    const username = getUsername(req);
+    const username = req.username ?? '';
     const offset   = (page - 1) * limit;
 
     const conditions = [];
@@ -202,10 +199,10 @@ router.get('/unchunked', async (req, res) => {
   }
 });
 
-router.get('/:id', async (req, res) => {
+router.get('/:id', optionalAuth, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
-    const username = getUsername(req);
+    const username = req.username ?? '';
     if (isNaN(id)) return res.status(400).json({ error: 'Invalid article id' });
     const { rows } = await pool.query('SELECT * FROM articles WHERE id = $1', [id]);
     if (!rows.length) return res.status(404).json({ error: 'Article not found' });
@@ -278,12 +275,11 @@ router.put('/:id/content', async (req, res) => {
   }
 });
 
-router.post('/:id/like', async (req, res) => {
+router.post('/:id/like', requireAuth, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
-    const username = getUsername(req);
+    const username = req.username;
     if (isNaN(id)) return res.status(400).json({ error: 'Invalid article id' });
-    if (!username) return res.status(401).json({ error: 'Authentication required' });
 
     const { rows } = await pool.query(
       `UPDATE articles
@@ -307,12 +303,11 @@ router.post('/:id/like', async (req, res) => {
   }
 });
 
-router.post('/:id/comments', async (req, res) => {
+router.post('/:id/comments', requireAuth, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
-    const username = getUsername(req);
+    const username = req.username;
     if (isNaN(id)) return res.status(400).json({ error: 'Invalid article id' });
-    if (!username) return res.status(401).json({ error: 'Authentication required' });
 
     const text = String(req.body.text ?? '').trim().slice(0, 1000);
 
