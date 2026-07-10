@@ -15,6 +15,7 @@ export default function ArticleDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [likeLoading, setLikeLoading] = useState(false);
+  const [saveLoading, setSaveLoading] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -43,6 +44,23 @@ export default function ArticleDetailPage() {
       // Keep the UI calm — the login gate already makes auth explicit.
     } finally {
       setLikeLoading(false);
+    }
+  }
+
+  async function handleSave() {
+    if (!username || saveLoading) return;
+    setSaveLoading(true);
+    try {
+      const res = await fetch(`/api/articles/${article.id}/save`, {
+        method: article.saved_by_user ? 'DELETE' : 'POST',
+        headers: authHeaders(token),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setArticle(await res.json());
+    } catch {
+      // Keep the UI calm — the login gate already makes auth explicit.
+    } finally {
+      setSaveLoading(false);
     }
   }
 
@@ -90,6 +108,13 @@ export default function ArticleDetailPage() {
           disabled={!username || article.liked_by_user || likeLoading}
         >
           {article.liked_by_user ? 'Aimé' : "J'aime"} ({article.likes_count ?? 0})
+        </button>
+        <button
+          className={`interaction-btn ${article.saved_by_user ? 'active' : ''}`}
+          onClick={handleSave}
+          disabled={!username || saveLoading}
+        >
+          {article.saved_by_user ? 'Enregistré' : 'Enregistrer'}
         </button>
       </div>
 

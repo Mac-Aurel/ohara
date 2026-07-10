@@ -11,6 +11,7 @@ export default function Header() {
         <nav className="header-actions">
           {username ? (
             <>
+              <Link to="/saved" className="header-link-btn">Enregistrés</Link>
               <Link to="/profile" className="header-link-btn">@{username}</Link>
               <button className="header-link-btn" onClick={logout}>Se déconnecter</button>
             </>

@@ -69,16 +69,31 @@ function normalizeArticle(row, username = '') {
   };
 }
 
+async function fetchArticleForUser(id, username) {
+  const { rows } = await pool.query(
+    `SELECT a.*,
+      EXISTS (SELECT 1 FROM saved_articles sa WHERE sa.article_id = a.id AND sa.username = $2) AS saved_by_user
+     FROM articles a WHERE a.id = $1`,
+    [id, username],
+  );
+  return rows[0];
+}
+
 const CATEGORY_THRESHOLD = 0.6;
 
 router.get('/', optionalAuth, async (req, res) => {
   try {
     const page     = Math.max(1, parseInt(req.query.page,  10) || 1);
     const limit    = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
-    const { source, story_id, category } = req.query;
+    const { source, story_id, category, saved_by: savedBy } = req.query;
     const topics = parseTopics(req.query.topics);
     const username = req.username ?? '';
     const offset   = (page - 1) * limit;
+
+    // Saved-articles lists are private — only the owner can request their own.
+    if (savedBy && savedBy !== username) {
+      return res.status(403).json({ error: "Cannot view another user's saved articles" });
+    }
 
     const conditions = [];
     const params     = [];
@@ -86,6 +101,14 @@ router.get('/', optionalAuth, async (req, res) => {
     if (source)   { params.push(source);   conditions.push(`source = $${params.length}`);   }
     if (story_id) { params.push(story_id); conditions.push(`story_id = $${params.length}`); }
     if (category) { params.push(category); conditions.push(`c.category = $${params.length}`); }
+
+    params.push(username);
+    const currentUserParam = params.length;
+    if (savedBy) {
+      conditions.push(
+        `EXISTS (SELECT 1 FROM saved_articles sa WHERE sa.article_id = a.id AND sa.username = $${currentUserParam})`,
+      );
+    }
 
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     const scoreTerms = [];
@@ -105,7 +128,8 @@ router.get('/', optionalAuth, async (req, res) => {
       `SELECT a.id, title, content, summary, url,
       source, published_at, created_at, story_id,
       fact_check, historical_context, context_sources,
-      book_recommendations, likes_count, liked_by, category, image_url
+      book_recommendations, likes_count, liked_by, category, image_url,
+      EXISTS (SELECT 1 FROM saved_articles sa WHERE sa.article_id = a.id AND sa.username = $${currentUserParam}) AS saved_by_user
       FROM articles a LEFT JOIN LATERAL
       (SELECT * from categories ORDER BY a.embedding <=> embedding LIMIT 1) c ON true
        ${where}
@@ -216,9 +240,9 @@ router.get('/:id', optionalAuth, async (req, res) => {
     const id = parseInt(req.params.id, 10);
     const username = req.username ?? '';
     if (isNaN(id)) return res.status(400).json({ error: 'Invalid article id' });
-    const { rows } = await pool.query('SELECT * FROM articles WHERE id = $1', [id]);
-    if (!rows.length) return res.status(404).json({ error: 'Article not found' });
-    res.json(normalizeArticle(rows[0], username));
+    const article = await fetchArticleForUser(id, username);
+    if (!article) return res.status(404).json({ error: 'Article not found' });
+    res.json(normalizeArticle(article, username));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -306,12 +330,49 @@ router.post('/:id/like', requireAuth, async (req, res) => {
              ELSE COALESCE(liked_by, '[]'::jsonb) || jsonb_build_array($2)
            END
        WHERE id = $1
-       RETURNING *`,
+       RETURNING *,
+         EXISTS (SELECT 1 FROM saved_articles sa WHERE sa.article_id = articles.id AND sa.username = $2) AS saved_by_user`,
       [id, username],
     );
 
     if (!rows.length) return res.status(404).json({ error: 'Article not found' });
     res.json(normalizeArticle(rows[0], username));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/:id/save', requireAuth, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const username = req.username;
+    if (isNaN(id)) return res.status(400).json({ error: 'Invalid article id' });
+
+    await pool.query(
+      `INSERT INTO saved_articles (username, article_id) VALUES ($1, $2)
+       ON CONFLICT DO NOTHING`,
+      [username, id],
+    );
+
+    const article = await fetchArticleForUser(id, username);
+    if (!article) return res.status(404).json({ error: 'Article not found' });
+    res.json(normalizeArticle(article, username));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/:id/save', requireAuth, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const username = req.username;
+    if (isNaN(id)) return res.status(400).json({ error: 'Invalid article id' });
+
+    await pool.query('DELETE FROM saved_articles WHERE username = $1 AND article_id = $2', [username, id]);
+
+    const article = await fetchArticleForUser(id, username);
+    if (!article) return res.status(404).json({ error: 'Article not found' });
+    res.json(normalizeArticle(article, username));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

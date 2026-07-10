@@ -74,6 +74,16 @@ export async function initDB() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_comments_article_id ON comments (article_id)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_comments_parent_id ON comments (parent_id)`);
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS saved_articles (
+      username   TEXT        NOT NULL REFERENCES user_profiles(username) ON DELETE CASCADE,
+      article_id INTEGER     NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      PRIMARY KEY (username, article_id)
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_saved_articles_username ON saved_articles (username)`);
+
   // Migrate existing tables
   await pool.query(`ALTER TABLE articles ADD COLUMN IF NOT EXISTS story_id UUID`);
   await pool.query(`ALTER TABLE articles ADD COLUMN IF NOT EXISTS fact_check JSONB`);
