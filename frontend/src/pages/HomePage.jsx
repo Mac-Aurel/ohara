@@ -107,10 +107,6 @@ export default function HomePage() {
           {error && <p className="error">{error}</p>}
 
           <div className="filters-bar">
-            <button className="btn-refresh" onClick={triggerScrape} disabled={scraping}>
-              {scraping ? <><span className="spinner-sm" /> Récupération...</> : 'Actualiser les sources'}
-            </button>
-
             <div className="source-bar">
               <button
                 className={`source-btn${!activeSource ? ' active' : ''}`}
@@ -148,6 +144,10 @@ export default function HomePage() {
                 ))}
               </div>
             )}
+
+            <button className="btn-refresh" onClick={triggerScrape} disabled={scraping}>
+              {scraping ? <><span className="spinner-sm" /> Récupération...</> : 'Actualiser les sources'}
+            </button>
           </div>
 
           {profile?.interests?.length > 0 && (
