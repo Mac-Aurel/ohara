@@ -97,6 +97,17 @@ async def scrape(req: ScrapeRequest = ScrapeRequest()) -> dict:
     async with httpx.AsyncClient(timeout=60.0) as client:
 
         # -------------------------------------------------------------- #
+        # Phase 1a — Drop articles already in the DB (by URL)            #
+        #   Re-scraping re-fetches the same ~10 RSS entries per source   #
+        #   every time; without this, the full-body fetch, summarize     #
+        #   and fact-check phases below would redo that expensive work   #
+        #   for articles we've already processed on every single run.    #
+        # -------------------------------------------------------------- #
+        raw = await _drop_existing(client, raw)
+        if not raw:
+            return {"scraped": 0, "stories": 0}
+
+        # -------------------------------------------------------------- #
         # Phase 1b — Fetch each article's full page, extract its body    #
         #   and (if the RSS entry had no thumbnail) its og:image.        #
         #   Body falls back to the RSS teaser already in `content` on    #
@@ -184,6 +195,24 @@ async def _enrich_story(client: httpx.AsyncClient, rep: dict) -> None:
         )
     except Exception as exc:
         print(f"[scraper] failed to enrich story {rep['story_id']}: {exc}")
+
+
+async def _drop_existing(client: httpx.AsyncClient, articles: list[dict]) -> list[dict]:
+    """Filter out articles whose URL is already stored. Best-effort: if the
+    check itself fails, process everything rather than silently skip a scrape."""
+    if not articles:
+        return []
+    try:
+        resp = await client.post(
+            f"{NEWS_SERVICE_URL}/articles/existing-urls",
+            json={"urls": [a["url"] for a in articles]},
+        )
+        resp.raise_for_status()
+        existing = set(resp.json())
+    except Exception as exc:
+        print(f"[scraper] failed to check existing urls, processing all: {exc}")
+        return articles
+    return [a for a in articles if a["url"] not in existing]
 
 
 async def _fill_full_body(client: httpx.AsyncClient, article: dict) -> None:

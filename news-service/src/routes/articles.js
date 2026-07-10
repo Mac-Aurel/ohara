@@ -182,6 +182,18 @@ router.get('/stories', async (req, res) => {
   }
 });
 
+router.post('/existing-urls', async (req, res) => {
+  try {
+    const urls = Array.isArray(req.body.urls) ? req.body.urls : [];
+    if (!urls.length) return res.json([]);
+
+    const { rows } = await pool.query('SELECT url FROM articles WHERE url = ANY($1)', [urls]);
+    res.json(rows.map((row) => row.url));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.get('/unchunked', async (req, res) => {
   try {
     const limit = Math.min(200, Math.max(1, parseInt(req.query.limit, 10) || 50));
