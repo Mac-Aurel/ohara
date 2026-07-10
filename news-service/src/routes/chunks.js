@@ -55,12 +55,14 @@ router.post('/search', async (req, res) => {
          LIMIT 50
        )
        SELECT c.id, c.article_id, c.chunk_index, c.text,
-              a.title, a.url, a.source, a.published_at,
+              a.title, a.url, a.source, a.published_at, a.image_url, cat.category,
               COALESCE(1.0 / (60 + v.rank), 0) + COALESCE(1.0 / (60 + k.rank), 0) AS score
        FROM article_chunks c
        JOIN articles a ON a.id = c.article_id
        LEFT JOIN vector_ranked v ON v.id = c.id
        LEFT JOIN keyword_ranked k ON k.id = c.id
+       LEFT JOIN LATERAL
+         (SELECT category FROM categories ORDER BY a.embedding <=> embedding LIMIT 1) cat ON true
        WHERE v.id IS NOT NULL OR k.id IS NOT NULL
        ORDER BY score DESC
        LIMIT $3`,

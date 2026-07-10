@@ -105,7 +105,7 @@ router.get('/', optionalAuth, async (req, res) => {
       `SELECT a.id, title, content, summary, url,
       source, published_at, created_at, story_id,
       fact_check, historical_context, context_sources,
-      book_recommendations, likes_count, comments, liked_by, category
+      book_recommendations, likes_count, comments, liked_by, category, image_url
       FROM articles a LEFT JOIN LATERAL
       (SELECT * from categories ORDER BY a.embedding <=> embedding LIMIT 1) c ON true
        ${where}
@@ -215,7 +215,7 @@ router.get('/:id', optionalAuth, async (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const {
-      title, content, summary, url, source, published_at,
+      title, content, summary, url, source, published_at, image_url,
       fact_check, historical_context, context_sources, book_recommendations,
     } = req.body;
 
@@ -228,8 +228,8 @@ router.post('/', async (req, res) => {
     const { rows } = await pool.query(
       `INSERT INTO articles
          (title, content, summary, url, source, published_at, story_id,
-          fact_check, historical_context, context_sources, book_recommendations, embedding)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+          fact_check, historical_context, context_sources, book_recommendations, embedding, image_url)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
        ON CONFLICT (url) DO UPDATE SET
          summary              = EXCLUDED.summary,
          story_id             = EXCLUDED.story_id,
@@ -237,7 +237,8 @@ router.post('/', async (req, res) => {
          historical_context   = EXCLUDED.historical_context,
          context_sources      = EXCLUDED.context_sources,
          book_recommendations = EXCLUDED.book_recommendations,
-         embedding            = EXCLUDED.embedding
+         embedding            = EXCLUDED.embedding,
+         image_url            = COALESCE(EXCLUDED.image_url, articles.image_url)
        RETURNING *`,
       [
         title, content, summary, url, source, published_at, story_id,
@@ -246,6 +247,7 @@ router.post('/', async (req, res) => {
         context_sources      ? JSON.stringify(context_sources)      : null,
         book_recommendations ? JSON.stringify(book_recommendations) : null,
         `[${embedding.join(",")}]`,
+        image_url ?? null,
       ],
     );
     //console.log(`Successfully updated row: ${rows[0]}`)

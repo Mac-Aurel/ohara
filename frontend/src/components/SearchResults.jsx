@@ -1,3 +1,5 @@
+import { categoryTone } from '../lib/categoryFallback.js';
+
 export default function SearchResults({ state }) {
   const { query, results, error } = state;
 
@@ -21,6 +23,16 @@ export default function SearchResults({ state }) {
               rel="noopener noreferrer"
               className="card card-link"
             >
+              {chunk.image_url ? (
+                <div className="card-image">
+                  <img src={chunk.image_url} alt="" loading="lazy" />
+                </div>
+              ) : (
+                <div className="card-image card-image-fallback" style={{ background: categoryTone(chunk.category) }}>
+                  <span className="card-image-fallback-label">{chunk.category || chunk.source}</span>
+                </div>
+              )}
+
               <div className="card-meta">
                 <span className="source">{chunk.source}</span>
                 {chunk.published_at && (

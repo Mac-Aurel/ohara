@@ -27,7 +27,8 @@ export async function initDB() {
       embedding            vector(384),
       likes_count          INTEGER     DEFAULT 0,
       comments             JSONB       DEFAULT '[]'::jsonb,
-      liked_by             JSONB       DEFAULT '[]'::jsonb
+      liked_by             JSONB       DEFAULT '[]'::jsonb,
+      image_url            TEXT
     )
   `);
 
@@ -69,6 +70,7 @@ export async function initDB() {
   await pool.query(`ALTER TABLE articles ADD COLUMN IF NOT EXISTS likes_count INTEGER DEFAULT 0`);
   await pool.query(`ALTER TABLE articles ADD COLUMN IF NOT EXISTS comments JSONB DEFAULT '[]'::jsonb`);
   await pool.query(`ALTER TABLE articles ADD COLUMN IF NOT EXISTS liked_by JSONB DEFAULT '[]'::jsonb`);
+  await pool.query(`ALTER TABLE articles ADD COLUMN IF NOT EXISTS image_url TEXT`);
   await pool.query(`UPDATE articles SET likes_count = 0 WHERE likes_count IS NULL`);
   await pool.query(`UPDATE articles SET comments = '[]'::jsonb WHERE comments IS NULL`);
   await pool.query(`UPDATE articles SET liked_by = '[]'::jsonb WHERE liked_by IS NULL`);

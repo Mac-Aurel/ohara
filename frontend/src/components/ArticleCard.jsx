@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { categoryTone } from '../lib/categoryFallback.js';
 import { VerdictBadge } from './ArticleSections.jsx';
 
 export default function ArticleCard({ article }) {
@@ -10,6 +11,16 @@ export default function ArticleCard({ article }) {
 
   return (
     <Link to={`/article/${article.id}`} className="card card-link">
+      {article.image_url ? (
+        <div className="card-image">
+          <img src={article.image_url} alt="" loading="lazy" />
+        </div>
+      ) : (
+        <div className="card-image card-image-fallback" style={{ background: categoryTone(article.category) }}>
+          <span className="card-image-fallback-label">{article.category || article.source}</span>
+        </div>
+      )}
+
       <div className="card-meta">
         <span className="source">{article.source}</span>
         {date && <span className="date">{date}</span>}

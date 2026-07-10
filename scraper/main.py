@@ -69,11 +69,13 @@ async def scrape(req: ScrapeRequest = ScrapeRequest()) -> dict:
     async with httpx.AsyncClient(timeout=60.0) as client:
 
         # -------------------------------------------------------------- #
-        # Phase 1b — Fetch each article's full page and extract its body #
-        #   Falls back to the RSS teaser already in `content` on any     #
-        #   failure (timeout, non-200, extraction miss, paywall preview  #
-        #   shorter than the teaser). Must run before summarize/save:    #
-        #   `content` is written once at insert and never updated later. #
+        # Phase 1b — Fetch each article's full page, extract its body    #
+        #   and (if the RSS entry had no thumbnail) its og:image.        #
+        #   Body falls back to the RSS teaser already in `content` on    #
+        #   any failure (timeout, non-200, extraction miss, paywall      #
+        #   preview shorter than the teaser). Must run before            #
+        #   summarize/save: `content` is written once at insert and      #
+        #   never updated later.                                        #
         # -------------------------------------------------------------- #
         await asyncio.gather(*[_fill_full_body(client, a) for a in raw])
 
@@ -158,22 +160,39 @@ async def _enrich_story(client: httpx.AsyncClient, rep: dict) -> None:
 
 async def _fill_full_body(client: httpx.AsyncClient, article: dict) -> None:
     """Best-effort: replace the RSS teaser in `article["content"]` with the
-    full page body. Leaves the teaser untouched on any failure."""
-    body = await _fetch_full_body(client, article["url"])
+    full page body, and fill `image_url` from the page's og:image if the
+    RSS entry didn't already carry a thumbnail. Leaves both untouched on
+    any failure."""
+    html = await _fetch_page(client, article["url"])
+    if html is None:
+        return
+
+    body = trafilatura.extract(html)
     teaser = article["content"]
     if body and len(body) >= _MIN_FULL_BODY_LENGTH and len(body) > len(teaser):
         article["content"] = body
 
+    if not article.get("image_url"):
+        article["image_url"] = _extract_page_image(html, article["url"])
 
-async def _fetch_full_body(client: httpx.AsyncClient, url: str) -> str | None:
+
+async def _fetch_page(client: httpx.AsyncClient, url: str) -> str | None:
     async with _FETCH_SEMAPHORE:
         try:
             resp = await client.get(url, headers=_FETCH_HEADERS, timeout=12.0, follow_redirects=True)
             if resp.status_code != 200:
                 return None
-            return trafilatura.extract(resp.text)
+            return resp.text
         except Exception:
             return None
+
+
+def _extract_page_image(html: str, url: str) -> str | None:
+    try:
+        metadata = trafilatura.extract_metadata(html, default_url=url)
+        return metadata.image if metadata else None
+    except Exception:
+        return None
 
 
 async def _save(client: httpx.AsyncClient, article: dict) -> dict | None:
@@ -224,7 +243,35 @@ def _build_article(entry, source: str) -> dict | None:
         "source":       source,
         "published_at": _parse_date(entry),
         "summary":      "",
+        "image_url":    _extract_rss_image(entry),
     }
+
+
+def _extract_rss_image(entry) -> str | None:
+    """Pull a thumbnail straight from the RSS entry, checking the tags
+    different feeds actually use (BBC: media:thumbnail, Guardian/Le Monde:
+    media:content, some feeds: a plain image enclosure)."""
+    thumbnails = entry.get("media_thumbnail")
+    if thumbnails:
+        return thumbnails[0].get("url")
+
+    contents = entry.get("media_content")
+    if contents:
+        widest = max(contents, key=lambda m: _safe_int(m.get("width")))
+        return widest.get("url")
+
+    for enclosure in entry.get("enclosures", []):
+        if str(enclosure.get("type", "")).startswith("image"):
+            return enclosure.get("href") or enclosure.get("url")
+
+    return None
+
+
+def _safe_int(value) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _parse_date(entry) -> str:
