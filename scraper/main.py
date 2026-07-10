@@ -1,7 +1,6 @@
 import asyncio
 import os
 import time
-from contextlib import asynccontextmanager
 from datetime import datetime
 
 import feedparser
@@ -10,39 +9,18 @@ import trafilatura
 from fastapi import FastAPI
 from pydantic import BaseModel
 
+app = FastAPI(title="Scraper Service")
+
 NEWS_SERVICE_URL = os.getenv("NEWS_SERVICE_URL", "http://news-service:5001")
 SUMMARIZER_URL   = os.getenv("SUMMARIZER_URL",   "http://summarizer:5003")
 FACT_CHECKER_URL = os.getenv("FACT_CHECKER_URL", "http://fact-checker:5004")
 RAG_SERVICE_URL  = os.getenv("RAG_SERVICE_URL",  "http://rag-service:5005")
 
-# How often the feed refreshes itself, in seconds — defaults to 2h.
-SCRAPE_INTERVAL_SECONDS = int(os.getenv("SCRAPE_INTERVAL_SECONDS", str(2 * 60 * 60)))
-
-
-async def _auto_scrape_loop() -> None:
-    """Keeps the feed fresh on a fixed cadence so nobody has to click
-    'Actualiser les sources'. Sleeps first: on a fresh deploy `make dev`
-    already triggers one scrape explicitly, so an immediate second run
-    here would just double up the LLM calls."""
-    while True:
-        try:
-            await asyncio.sleep(SCRAPE_INTERVAL_SECONDS)
-            print("[scraper] running scheduled auto-scrape")
-            await scrape()
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            print(f"[scraper] scheduled auto-scrape failed: {exc}")
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    task = asyncio.create_task(_auto_scrape_loop())
-    yield
-    task.cancel()
-
-
-app = FastAPI(title="Scraper Service", lifespan=lifespan)
+# The scraper itself stays stateless and is only ever triggered from the
+# outside (manual button, or the `scheduler` container in docker-compose
+# calling this on a timer). That keeps it safe to run several replicas
+# behind a load balancer without every replica firing its own schedule.
+# See issue #10.
 
 # A full article body is only trusted over the RSS teaser once it clears
 # this floor — shorter than that and it's more likely a paywalled preview

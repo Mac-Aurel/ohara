@@ -45,7 +45,11 @@ Pour les articles vraiment nouveaux, le scraper va chercher la page complète de
 
 Les articles sont ensuite résumés (appel au summarizer), sauvegardés en base, puis regroupés par histoire. Le fact-check ne tourne qu'une fois par histoire, sur l'article le plus complet du groupe, et son résultat est propagé à tous les articles de cette histoire. Enfin, le scraper déclenche l'indexation RAG en tâche de fond (fire and forget).
 
-Depuis peu, un scraper tourne aussi tout seul en arrière-plan (une boucle asyncio lancée au démarrage du service) et relance ce pipeline toutes les 2h sans intervention. C'est configurable via la variable d'environnement `SCRAPE_INTERVAL_SECONDS`.
+Le scraper lui-même reste stateless : il n'a aucune notion de planification, il ne fait que répondre à `POST /scrape` quand on le lui demande. C'est volontaire, pour pouvoir un jour faire tourner plusieurs instances du scraper derrière un load balancer sans qu'elles se marchent dessus en se déclenchant chacune de leur côté.
+
+### scheduler (conteneur curl, docker-compose)
+
+Le déclenchement automatique du scrape ne vit pas dans le scraper, il vit dans un service à part qui ne fait qu'une chose : dormir, puis appeler `POST /api/scrape` via l'API Gateway, en boucle, toutes les 2h par défaut (`INTERVAL_SECONDS`). C'est l'équivalent local de ce que fera cron-job.org une fois le projet déployé publiquement (cron-job.org a besoin d'une URL joignable depuis internet, ce que `localhost` n'est pas). Le bouton manuel "Actualiser les sources" reste disponible dans le frontend en complément, pour forcer un scrape sans attendre le prochain cycle.
 
 ### summarizer (Python, FastAPI)
 
@@ -176,11 +180,10 @@ Voir issue [#11](https://github.com/Mac-Aurel/ohara/issues/11) pour les étapes 
 
 | Feature | Issue | Statut |
 |---|---|---|
-| Auth utilisateurs JWT | [#4](https://github.com/Mac-Aurel/ohara/issues/4) | fait |
-| Clustering par embeddings | [#15](https://github.com/Mac-Aurel/ohara/issues/15) | fait |
-| Scraping automatique périodique | [#10](https://github.com/Mac-Aurel/ohara/issues/10) | fait, mais différemment : scheduler interne au scraper plutôt que cron-job.org externe |
+| Auth utilisateurs JWT | [#4](https://github.com/Mac-Aurel/ohara/issues/4) | fait, fermée |
+| Clustering par embeddings | [#15](https://github.com/Mac-Aurel/ohara/issues/15) | fait, fermée |
+| Scraping automatique périodique | [#10](https://github.com/Mac-Aurel/ohara/issues/10) | scraper stateless + scheduler local en place, reste ouverte tant qu'un vrai cron-job.org n'est pas branché sur l'URL publique |
+| Flux RSS Reuters mort | [#17](https://github.com/Mac-Aurel/ohara/issues/17) | à faire |
 | Débats threadés par article | [#5](https://github.com/Mac-Aurel/ohara/issues/5) | à faire, il n'y a aujourd'hui que des commentaires plats |
 | Frontend v2 (fact-check, contexte, auth, débats) | [#6](https://github.com/Mac-Aurel/ohara/issues/6) | en cours, il ne manque plus que les débats |
 | Déploiement Oracle Cloud | [#11](https://github.com/Mac-Aurel/ohara/issues/11) | à faire |
-
-Les issues #4, #10 et #15 sont encore marquées ouvertes sur GitHub alors que le travail correspondant est fait, elles n'ont pas été fermées.
