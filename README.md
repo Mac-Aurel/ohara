@@ -1,34 +1,107 @@
 # Ohara
 
-Ohara est un agrégateur d'actualités en microservices. Il scrape des flux RSS, résume les articles, vérifie les faits avec un LLM, fournit du contexte historique ancré sur Wikipedia et des recommandations de lecture.
+Ohara est un agrégateur d'actualités construit en microservices. Il va chercher des flux RSS, résume les articles, vérifie les faits avec un LLM, ajoute du contexte historique appuyé sur Wikipedia et propose des recommandations de lecture. Le tout est servi par une interface React inspirée du site raiseurvoice (typographie en majuscules, palette noir et blanc, cards épurées).
 
 ## Fonctionnalités
 
-- Scraping de 4 sources RSS (BBC, Reuters, The Guardian, Le Monde)
+- Scraping de 4 sources RSS (BBC, Reuters, The Guardian, Le Monde), avec récupération automatique de l'image de l'article et du corps complet de la page
 - Résumé automatique des articles (sumy/LexRank)
-- **Fact-checking par IA** : verdict + analyse des claims (Groq / Llama 3.1)
-- **Contexte historique** : généré à partir de sources Wikipedia réelles
-- **Recommandations de livres** : suggérées par le LLM, enrichies via Open Library (année, lien)
-- Clustering des articles par histoire (similarité Jaccard sur les titres)
-- Interface React avec badges de verdict, sections dépliables, filtre par source, rafraîchissement automatique
+- Fact-checking par IA : verdict + analyse des claims (Groq / Llama 3.1)
+- Contexte historique généré à partir de vraies sources Wikipedia, jamais inventé
+- Recommandations de livres suggérées par le LLM puis enrichies via Open Library (année, lien)
+- Clustering des articles par histoire grâce à des embeddings sémantiques, pour regrouper plusieurs sources qui couvrent le même événement
+- Recherche sémantique et chat conversationnel sur le corpus d'articles (RAG)
+- Authentification JWT (inscription, connexion, profil avec centres d'intérêt)
+- Rafraîchissement automatique du flux toutes les 2h côté serveur, plus un bouton manuel pour forcer un scrape
+
+## Architecture
+
+```
+Navigateur
+  │
+Frontend React (Vite en dev, Nginx en prod, port 3000)
+  │
+API Gateway (port 8080), reverse proxy vers les services internes
+  ├── /api/articles ──► news-service (5001) ──► PostgreSQL + pgvector
+  ├── /api/scrape   ──► scraper (5002)
+  │                        ├── summarizer (5003)      résumé local, LexRank
+  │                        └── fact-checker (5004)
+  │                                ├── Groq API        verdict, contexte, livres
+  │                                ├── Wikipedia API    sources historiques
+  │                                └── Open Library API métadonnées livres
+  ├── /api/users  ──► news-service (5001)              register / login JWT
+  └── /api/rag    ──► rag-service (5005)                recherche + chat
+```
+
+Chaque service tourne dans son propre conteneur Docker et communique avec les autres en HTTP interne, via le réseau `db_net` de Docker Compose. Le frontend, lui, ne parle jamais directement aux services internes : tout passe par l'API Gateway, qui fait juste du reverse proxy (aucune logique métier dedans).
+
+## Comment chaque partie fonctionne
+
+### scraper (Python, FastAPI)
+
+Le scraper lit 4 flux RSS en parallèle avec `feedparser`, en prenant les 10 dernières entrées de chaque source. Avant de faire quoi que ce soit de coûteux, il demande à news-service quelles URLs existent déjà en base (`POST /articles/existing-urls`) et jette tout ce qui est déjà connu. C'est important : sans ce filtre, chaque scrape retraiterait les mêmes articles à chaque cycle, en repayant un résumé et un fact-check pour rien, et en écrasant au passage le fact-check déjà calculé.
+
+Pour les articles vraiment nouveaux, le scraper va chercher la page complète de l'article (le flux RSS ne donne souvent qu'un teaser tronqué) et en extrait le corps avec `trafilatura`. Il en profite pour récupérer une image : d'abord dans le flux RSS lui-même (`media:thumbnail`, `media:content` ou une enclosure image, selon ce que la source expose), et si rien n'est trouvé, il retombe sur la balise `og:image` de la page HTML. Quand aucune des deux ne donne d'image, le frontend affiche à la place un bloc de couleur uni avec le nom de la catégorie, pour que chaque card ait toujours un visuel.
+
+Les articles sont ensuite résumés (appel au summarizer), sauvegardés en base, puis regroupés par histoire. Le fact-check ne tourne qu'une fois par histoire, sur l'article le plus complet du groupe, et son résultat est propagé à tous les articles de cette histoire. Enfin, le scraper déclenche l'indexation RAG en tâche de fond (fire and forget).
+
+Depuis peu, un scraper tourne aussi tout seul en arrière-plan (une boucle asyncio lancée au démarrage du service) et relance ce pipeline toutes les 2h sans intervention. C'est configurable via la variable d'environnement `SCRAPE_INTERVAL_SECONDS`.
+
+### summarizer (Python, FastAPI)
+
+Le plus petit des services. Il prend du texte et en sort un résumé extractif avec l'algorithme LexRank (bibliothèque sumy), en local, sans appel LLM. Rapide et gratuit, mais ça ne fait que sélectionner les phrases les plus représentatives du texte, pas de la vraie génération.
+
+### fact-checker (Python, FastAPI)
+
+C'est ici que se passe l'essentiel du travail intelligent. Pour un article donné, le service commence par chercher des pages Wikipedia pertinentes à partir de mots-clés extraits du titre. Ces extraits Wikipedia sont ensuite injectés dans le prompt envoyé à Groq (modèle Llama 3.1), avec pour consigne explicite de ne s'appuyer que sur ces sources pour le contexte historique, pas d'inventer. Un seul appel LLM renvoie à la fois le verdict de fact-check (avec le détail des claims vérifiées), le contexte historique et une liste de recommandations de livres.
+
+Les livres suggérés par le LLM sont ensuite passés à l'API Open Library pour récupérer de vraies métadonnées (année de publication, lien) plutôt que de faire confiance aveuglément à ce que le modèle a inventé.
+
+### rag-service (Python, FastAPI)
+
+Ce service gère la recherche sémantique et le chat. Quand un nouvel article est indexé, son contenu est découpé en morceaux d'environ 450 tokens (sans chevauchement, un choix qui n'a montré aucun bénéfice mesurable ici tout en coûtant plus cher à indexer), chaque morceau est transformé en embedding et stocké dans `article_chunks`.
+
+La recherche combine deux méthodes de scoring qui se complètent : une recherche vectorielle (similarité cosinus sur les embeddings) et une recherche par mots-clés classique (`tsvector` Postgres), fusionnées avec du reciprocal rank fusion pour donner un score final. Le chat, lui, récupère les meilleurs extraits pour une question donnée puis demande à Groq de répondre en se basant uniquement sur ces extraits, en citant ses sources par numéro. S'il ne trouve rien de pertinent, il répond littéralement qu'il ne sait pas plutôt que d'improviser.
+
+### news-service (Node.js, Express, PostgreSQL)
+
+Le cœur de la persistance. Il expose les routes articles, utilisateurs et chunks, et porte toute la logique de clustering par histoire : quand un article est sauvegardé, son titre est transformé en embedding puis comparé à ceux déjà en base. Si la similarité dépasse 0.8, l'article rejoint le `story_id` existant, sinon il en reçoit un nouveau. C'est ce qui permet d'afficher plusieurs sources qui couvrent la même actualité comme une seule histoire plutôt que comme des doublons.
+
+La catégorisation fonctionne sur un principe voisin : dix catégories fixes (Politics, World, Economics, Technology, Science, Health, Environment, Culture, Sports, Crime & Justice) sont pré-calculées en embeddings une seule fois via un script de seed, et chaque article se voit attribuer la catégorie la plus proche au moment de la lecture, par une jointure SQL plutôt qu'un traitement séparé.
+
+L'authentification est un JWT classique signé côté serveur (bcrypt pour les mots de passe, expiration à 7 jours), sans session côté serveur : le token est décodé côté client pour en extraire le nom d'utilisateur.
+
+### api-gateway (Node.js, Express)
+
+Volontairement très simple : un reverse proxy (`http-proxy-middleware`) qui redirige `/api/articles`, `/api/users`, `/api/scrape`, `/api/summarize` et `/api/rag` vers le bon service interne, en réécrivant le chemin. Aucune logique métier ne doit vivre ici, c'est juste la porte d'entrée unique du frontend.
+
+### frontend (React, Vite)
+
+Le design suit de près celui de raiseurvoice : police Geist en majuscules espacées, palette noir/blanc/gris, cards sans fioritures. La page d'accueil a un hero centré, une barre de recherche autonome (soulignée, pas de bouton chatbot mélangé avec la recherche classique) et une grille uniforme de cards. La page d'un article affiche l'image en bandeau plein cadre tout en haut, collée au header, avec le titre et les métadonnées centrés en dessous.
+
+La recherche sémantique et le chat conversationnel (RAG) sont volontairement séparés dans l'interface : la recherche vit dans sa propre barre sur la page d'accueil, le chat vit dans un widget flottant à part (`ChatWidget`), pour ne pas mélanger deux usages différents dans un seul composant à onglets.
+
+L'authentification côté client passe par un contexte React (`AuthProvider`) qui garde le token JWT dans le `localStorage` et décode le payload pour en tirer le nom d'utilisateur, sans jamais interroger le serveur juste pour ça.
 
 ## Stack technique
 
 | Composant | Technologie |
 |---|---|
-| Frontend | React 18, Vite, Nginx |
-| API Gateway | Node.js, Express |
-| News Service | Node.js, Express, PostgreSQL |
-| Scraper | Python 3.11, FastAPI, feedparser |
+| Frontend | React 18, Vite, React Router, Nginx en prod |
+| API Gateway | Node.js, Express, http-proxy-middleware |
+| News Service | Node.js, Express, PostgreSQL, pgvector |
+| Scraper | Python 3.11, FastAPI, feedparser, trafilatura |
 | Summarizer | Python 3.11, FastAPI, sumy/LexRank |
 | Fact Checker | Python 3.11, FastAPI, Groq (Llama 3.1), Wikipedia API, Open Library |
-| Base de données | PostgreSQL 16 |
+| RAG Service | Python 3.11, FastAPI, tiktoken, Groq |
+| Embeddings | intfloat/multilingual-e5-small, servi par Infinity |
+| Base de données | PostgreSQL 16 + extension pgvector |
 | Orchestration | Docker Compose v2 |
 
 ## Prérequis
 
 - Docker et Docker Compose v2
-- Une clé API Groq ([console.groq.com](https://console.groq.com))
+- Une clé API Groq, gratuite sur [console.groq.com](https://console.groq.com)
 
 ## Installation
 
@@ -36,7 +109,7 @@ Ohara est un agrégateur d'actualités en microservices. Il scrape des flux RSS,
 git clone https://github.com/Mac-Aurel/ohara.git
 cd ohara
 cp .env.example .env
-# Ajouter GROQ_API_KEY dans .env
+# ajouter GROQ_API_KEY et JWT_SECRET dans .env
 make dev
 ```
 
@@ -44,49 +117,36 @@ Le frontend est accessible sur `http://localhost:3000`.
 
 ## Commandes
 
+Un seul `Makefile` à la racine, qui détecte l'OS et utilise PowerShell sous Windows ou curl/python3 ailleurs.
+
 ```bash
-make dev        # Build, démarre tout en arrière-plan et scrape au démarrage
-make up         # Build + démarre avec les logs en direct
-make down       # Arrête tous les services
-make scrape     # Lance un scraping manuel
-make articles   # Affiche les articles en JSON
-make test       # Health check de tous les services + test fact-checker direct
-make logs       # Suit les logs en direct
+make dev        # build, démarre tout en arrière-plan et scrape au démarrage
+make up         # build + démarre avec les logs en direct
+make down       # arrête tous les services
+make scrape     # lance un scraping manuel
+make articles   # affiche les articles en JSON
+make test       # health check de tous les services + test fact-checker direct
+make logs       # suit les logs en direct
 ```
 
-## Architecture
+### Développement du frontend seul
 
-```
-Browser
-  │
-Frontend React (port 3000, Nginx)
-  │
-API Gateway (port 8080)
-  ├── /api/articles  ──► news-service (5001) ──► PostgreSQL
-  ├── /api/scrape    ──► scraper (5002)
-  │                         ├── summarizer (5003)          [local, LexRank]
-  │                         └── fact-checker (5004)
-  │                                 ├── Groq API           [verdict + contexte + livres]
-  │                                 ├── Wikipedia API      [sources historiques]
-  │                                 └── Open Library API   [métadonnées livres]
-  ├── /api/users     ──► news-service (5001)               [register/login JWT]
-  ├── /api/rag       ──► rag-service (5005)                [recherche + chat]
-  └── /api/debates   ──► debate-service (5006)             [à venir]
+Pour itérer sur le frontend sans reconstruire l'image Docker à chaque changement, on peut le lancer avec Vite directement pendant que le reste tourne en Docker :
+
+```bash
+cd frontend
+npm install
+npm run dev
 ```
 
-### Pipeline de traitement par scrape
-
-1. **Fetch RSS** — 4 sources en parallèle (`asyncio.gather`)
-2. **Résumé** — tous les articles en parallèle (sumy local)
-3. **Sauvegarde** — séquentielle (prévient la race condition sur le clustering story_id)
-4. **Clustering** — regroupement par `story_id` (Jaccard ≥ 0.3), 1 représentant par story
-5. **Fact-check** — 1 appel Groq par story (Wikipedia + LLM + Open Library en parallèle)
+Le serveur de dev écoute sur `http://localhost:5173` et proxy `/api` vers `http://localhost:8080` (voir `vite.config.js`), donc l'API Gateway doit tourner en parallèle.
 
 ## Configuration
 
 ```bash
 # .env (ne jamais commiter)
-GROQ_API_KEY=gsk_...   # https://console.groq.com
+GROQ_API_KEY=gsk_...            # https://console.groq.com
+JWT_SECRET=...                  # openssl rand -hex 32
 ```
 
 ## Sources RSS
@@ -100,6 +160,8 @@ Définies dans `scraper/main.py` → `RSS_SOURCES` :
 | The Guardian | https://www.theguardian.com/world/rss |
 | Le Monde | https://www.lemonde.fr/rss/une.xml |
 
+Le flux Reuters ne renvoie actuellement plus aucune entrée (`feedparser` retourne une liste vide). Ce n'est pas un bug côté Ohara, c'est le flux lui-même qui semble mort ou déplacé, il faudra trouver une URL de remplacement.
+
 ## Déploiement cloud (cible, sans frais)
 
 | Service | Rôle |
@@ -107,16 +169,18 @@ Définies dans `scraper/main.py` → `RSS_SOURCES` :
 | Vercel | Frontend React (CDN global) |
 | Oracle Cloud ARM | Backend Docker Compose (VM 4 OCPU / 24 GB, always free) |
 | Neon | PostgreSQL serverless (500 MB, sans expiry) |
-| cron-job.org | POST `/api/scrape` toutes les 30 min |
 
-Voir issue [#11](https://github.com/Mac-Aurel/ohara/issues/11) pour les étapes détaillées.
+Voir issue [#11](https://github.com/Mac-Aurel/ohara/issues/11) pour les étapes détaillées. Pas encore fait, le projet tourne pour l'instant uniquement en local.
 
-## Roadmap
+## État d'avancement
 
 | Feature | Issue | Statut |
 |---|---|---|
-| Auth utilisateurs JWT | [#4](https://github.com/Mac-Aurel/ohara/issues/4) | ✅ fait |
-| Débats threadés | [#5](https://github.com/Mac-Aurel/ohara/issues/5) | ⬜ à faire |
-| Frontend v2 (débats + auth) | [#6](https://github.com/Mac-Aurel/ohara/issues/6) | 🔄 en cours |
-| Scheduling cron-job.org | [#10](https://github.com/Mac-Aurel/ohara/issues/10) | ⬜ à faire |
-| Déploiement Oracle Cloud | [#11](https://github.com/Mac-Aurel/ohara/issues/11) | ⬜ à faire |
+| Auth utilisateurs JWT | [#4](https://github.com/Mac-Aurel/ohara/issues/4) | fait |
+| Clustering par embeddings | [#15](https://github.com/Mac-Aurel/ohara/issues/15) | fait |
+| Scraping automatique périodique | [#10](https://github.com/Mac-Aurel/ohara/issues/10) | fait, mais différemment : scheduler interne au scraper plutôt que cron-job.org externe |
+| Débats threadés par article | [#5](https://github.com/Mac-Aurel/ohara/issues/5) | à faire, il n'y a aujourd'hui que des commentaires plats |
+| Frontend v2 (fact-check, contexte, auth, débats) | [#6](https://github.com/Mac-Aurel/ohara/issues/6) | en cours, il ne manque plus que les débats |
+| Déploiement Oracle Cloud | [#11](https://github.com/Mac-Aurel/ohara/issues/11) | à faire |
+
+Les issues #4, #10 et #15 sont encore marquées ouvertes sur GitHub alors que le travail correspondant est fait, elles n'ont pas été fermées.
