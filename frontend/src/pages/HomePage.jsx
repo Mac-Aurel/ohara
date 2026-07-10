@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import ArticleList from '../components/ArticleList.jsx';
-import AskPanel from '../components/AskPanel.jsx';
+import SearchBar from '../components/SearchBar.jsx';
+import SearchResults from '../components/SearchResults.jsx';
 import { authHeaders, useAuth } from '../lib/auth.jsx';
 
 const POLL_INTERVAL = 15_000;
@@ -18,7 +19,9 @@ export default function HomePage() {
   const [scraping, setScraping] = useState(false);
   const [error, setError] = useState(null);
   const [categories, setCategories] = useState([]);
+  const [searchState, setSearchState] = useState(null);
   const pollTimer = useRef(null);
+  const handleSearchResults = useCallback((state) => setSearchState(state), []);
 
   const fetchArticles = useCallback(async () => {
     try {
@@ -90,61 +93,74 @@ export default function HomePage() {
 
   return (
     <>
-      {error && <p className="error">{error}</p>}
-
-      <div className="filters-bar">
-        <button className="btn-refresh" onClick={triggerScrape} disabled={scraping}>
-          {scraping ? <><span className="spinner-sm" /> Récupération...</> : 'Actualiser les sources'}
-        </button>
-
-        <div className="source-bar">
-          <button
-            className={`source-btn${!activeSource ? ' active' : ''}`}
-            onClick={() => setFilter('source', null)}
-          >
-            Toutes
-          </button>
-          {SOURCES.map((source) => (
-            <button
-              key={source}
-              className={`source-btn${activeSource === source ? ' active' : ''}`}
-              onClick={() => setFilter('source', source)}
-            >
-              {source}
-            </button>
-          ))}
-        </div>
-
-        {categories.length > 0 && (
-          <div className="source-bar">
-            <button
-              className={`source-btn${!activeCategory ? ' active' : ''}`}
-              onClick={() => setFilter('category', null)}
-            >
-              Toutes les catégories
-            </button>
-            {categories.map((category) => (
-              <button
-                key={category}
-                className={`source-btn${activeCategory === category ? ' active' : ''}`}
-                onClick={() => setFilter('category', category)}
-              >
-                {category}
-              </button>
-            ))}
-          </div>
-        )}
+      <div className="hero">
+        <h1 className="hero-title">Newsbook</h1>
+        <p className="hero-subtitle">Actualités résumées, vérifiées et analysées.</p>
       </div>
 
-      <AskPanel />
+      <SearchBar onResults={handleSearchResults} />
 
-      {profile?.interests?.length > 0 && (
-        <p className="feed-hint">
-          Fil personnalisé pour <strong>{profile.username}</strong> selon : {profile.interests.join(', ')}
-        </p>
+      {searchState ? (
+        <SearchResults state={searchState} />
+      ) : (
+        <>
+          {error && <p className="error">{error}</p>}
+
+          <div className="filters-bar">
+            <button className="btn-refresh" onClick={triggerScrape} disabled={scraping}>
+              {scraping ? <><span className="spinner-sm" /> Récupération...</> : 'Actualiser les sources'}
+            </button>
+
+            <div className="source-bar">
+              <button
+                className={`source-btn${!activeSource ? ' active' : ''}`}
+                onClick={() => setFilter('source', null)}
+              >
+                Toutes
+              </button>
+              {SOURCES.map((source) => (
+                <button
+                  key={source}
+                  className={`source-btn${activeSource === source ? ' active' : ''}`}
+                  onClick={() => setFilter('source', source)}
+                >
+                  {source}
+                </button>
+              ))}
+            </div>
+
+            {categories.length > 0 && (
+              <div className="source-bar">
+                <button
+                  className={`source-btn${!activeCategory ? ' active' : ''}`}
+                  onClick={() => setFilter('category', null)}
+                >
+                  Toutes les catégories
+                </button>
+                {categories.map((category) => (
+                  <button
+                    key={category}
+                    className={`source-btn${activeCategory === category ? ' active' : ''}`}
+                    onClick={() => setFilter('category', category)}
+                  >
+                    {category}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {profile?.interests?.length > 0 && (
+            <p className="feed-hint">
+              Fil personnalisé pour <strong>{profile.username}</strong> selon : {profile.interests.join(', ')}
+            </p>
+          )}
+
+          <h2 className="section-label">Derniers articles</h2>
+
+          <ArticleList articles={articles} loading={loading} />
+        </>
       )}
-
-      <ArticleList articles={articles} loading={loading} />
     </>
   );
 }

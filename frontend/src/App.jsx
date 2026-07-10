@@ -1,4 +1,5 @@
 import { Route, Routes } from 'react-router-dom';
+import ChatWidget from './components/ChatWidget.jsx';
 import Header from './components/Header.jsx';
 import ArticleDetailPage from './pages/ArticleDetailPage.jsx';
 import HomePage from './pages/HomePage.jsx';
@@ -19,6 +20,7 @@ export default function App() {
           <Route path="/profile" element={<ProfilePage />} />
         </Routes>
       </main>
+      <ChatWidget />
     </div>
   );
 }
