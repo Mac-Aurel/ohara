@@ -4,6 +4,7 @@ import {
   BooksSection, FactCheckSection, HistoricalSection, VerdictBadge,
 } from '../components/ArticleSections.jsx';
 import { authHeaders, useAuth } from '../lib/auth.jsx';
+import { categoryTone } from '../lib/categoryFallback.js';
 
 export default function ArticleDetailPage() {
   const { id } = useParams();
@@ -89,16 +90,27 @@ export default function ArticleDetailPage() {
 
   return (
     <article className="article-detail">
-      <Link to="/" className="back-link">&larr; Retour</Link>
+      {article.image_url ? (
+        <div className="detail-hero">
+          <Link to="/" className="back-link">&larr; Retour</Link>
+          <img src={article.image_url} alt="" />
+        </div>
+      ) : (
+        <div className="detail-hero detail-hero-fallback" style={{ background: categoryTone(article.category) }}>
+          <Link to="/" className="back-link">&larr; Retour</Link>
+          <span className="detail-hero-fallback-label">{article.category || article.source}</span>
+        </div>
+      )}
 
-      <div className="card-meta">
-        <span className="source">{article.source}</span>
-        {date && <span className="date">{date}</span>}
+      <div className="detail-header">
+        {article.category && <span className="detail-eyebrow">{article.category}</span>}
+        <h1 className="detail-title">{article.title}</h1>
+        <p className="detail-subtitle">{article.source}{date && <> &middot; {date}</>}</p>
+      </div>
+
+      <div className="card-meta detail-meta">
         <VerdictBadge factCheck={article.fact_check} />
       </div>
-      {article.category && <span className="category">{article.category}</span>}
-
-      <h1 className="detail-title">{article.title}</h1>
 
       <p className="detail-summary">{article.summary || article.content}</p>
 

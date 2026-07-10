@@ -558,25 +558,90 @@ a { color: inherit; }
   gap: 1.1rem;
 }
 
+.detail-hero {
+  position: relative;
+  width: 100vw;
+  margin-left: calc(50% - 50vw);
+  margin-right: calc(50% - 50vw);
+  margin-top: -3rem;
+  height: 40vh;
+  overflow: hidden;
+  background: var(--border);
+}
+
+@media (min-width: 640px) { .detail-hero { height: 55vh; } }
+
+.detail-hero img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.detail-hero-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.detail-hero-fallback-label {
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 0.85rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.3em;
+}
+
 .back-link {
-  font-size: 0.75rem;
+  position: absolute;
+  top: 1.25rem;
+  left: 1.25rem;
+  z-index: 2;
+  background: rgba(255, 255, 255, 0.92);
+  padding: 0.5rem 0.9rem;
+  font-size: 0.7rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: var(--text-muted);
+  color: var(--text);
   text-decoration: none;
-  margin-bottom: 0.5rem;
 }
 
-.back-link:hover { color: var(--text); }
+.back-link:hover { color: var(--text-muted); }
+
+.detail-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.6rem;
+  padding-top: 1.5rem;
+}
+
+.detail-eyebrow {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  color: var(--text-faint);
+}
+
+.detail-subtitle {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-muted);
+}
+
+.detail-meta { justify-content: center; }
 
 .detail-title {
   font-family: var(--sans);
-  font-size: 1.6rem;
-  font-weight: 400;
+  font-size: clamp(1.6rem, 4vw, 2.4rem);
+  font-weight: 300;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  line-height: 1.3;
+  letter-spacing: 0.06em;
+  line-height: 1.25;
 }
 
 .detail-summary {
@@ -939,6 +1004,4 @@ a.book-title:hover { color: var(--text-muted); }
   .header-actions {
     width: 100%;
   }
-
-  .detail-title { font-size: 1.8rem; }
 }
