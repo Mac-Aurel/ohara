@@ -33,6 +33,15 @@ app.use(
 );
 
 app.use(
+  '/api/comments',
+  createProxyMiddleware({
+    target: NEWS_SERVICE_URL,
+    changeOrigin: true,
+    pathRewrite: { '^/api/comments': '/comments' },
+  }),
+);
+
+app.use(
   '/api/scrape',
   createProxyMiddleware({
     target: SCRAPER_URL,

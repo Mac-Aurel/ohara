@@ -38,6 +38,7 @@ services:
         environment:
             DATABASE_URL: postgres://journalism:journalism_pass@postgres:5432/journalism
             EMBEDDINGS_URL: http://embeddings:7997
+            RAG_SERVICE_URL: http://rag-service:5005
             JWT_SECRET: ${JWT_SECRET}
             PORT: 5001
         ports:

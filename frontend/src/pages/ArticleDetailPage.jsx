@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import {
   BooksSection, FactCheckSection, HistoricalSection, VerdictBadge,
 } from '../components/ArticleSections.jsx';
+import DebateThread from '../components/DebateThread.jsx';
 import { authHeaders, useAuth } from '../lib/auth.jsx';
 import { categoryTone } from '../lib/categoryFallback.js';
 
@@ -13,9 +14,6 @@ export default function ArticleDetailPage() {
   const [article, setArticle] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [commentText, setCommentText] = useState('');
-  const [commentError, setCommentError] = useState(null);
-  const [commentLoading, setCommentLoading] = useState(false);
   const [likeLoading, setLikeLoading] = useState(false);
 
   useEffect(() => {
@@ -48,45 +46,12 @@ export default function ArticleDetailPage() {
     }
   }
 
-  async function handleCommentSubmit(event) {
-    event.preventDefault();
-    if (!username || commentLoading) return;
-
-    const text = commentText.trim();
-    if (!text) {
-      setCommentError('Le commentaire ne peut pas être vide.');
-      return;
-    }
-
-    setCommentLoading(true);
-    setCommentError(null);
-
-    try {
-      const res = await fetch(`/api/articles/${article.id}/comments`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders(token) },
-        body: JSON.stringify({ text }),
-      });
-      if (!res.ok) {
-        const payload = await res.json().catch(() => ({}));
-        throw new Error(payload.error ?? `HTTP ${res.status}`);
-      }
-      setArticle(await res.json());
-      setCommentText('');
-    } catch (err) {
-      setCommentError(err.message || "Impossible d'ajouter le commentaire.");
-    } finally {
-      setCommentLoading(false);
-    }
-  }
-
   if (loading) return <p className="state-msg">Chargement de l'article…</p>;
   if (error || !article) return <p className="state-msg">{error ?? 'Article introuvable.'}</p>;
 
   const date = article.published_at
     ? new Date(article.published_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
     : null;
-  const comments = Array.isArray(article.comments) ? article.comments : [];
 
   return (
     <article className="article-detail">
@@ -126,7 +91,6 @@ export default function ArticleDetailPage() {
         >
           {article.liked_by_user ? 'Aimé' : "J'aime"} ({article.likes_count ?? 0})
         </button>
-        <span className="comments-count">{comments.length} commentaire{comments.length > 1 ? 's' : ''}</span>
       </div>
 
       <div className="card-sections">
@@ -135,51 +99,7 @@ export default function ArticleDetailPage() {
         <BooksSection books={article.book_recommendations} />
 
         <div className="section">
-          <div className="section-body comments-block">
-            <h2 className="comments-title">Commentaires ({comments.length})</h2>
-
-            {username ? (
-              <>
-                <p className="comment-user">Vous commentez en tant que <strong>@{username}</strong>.</p>
-                <form className="comment-form" onSubmit={handleCommentSubmit}>
-                  <textarea
-                    className="comment-textarea"
-                    placeholder="Partagez votre avis sur cette actualité..."
-                    value={commentText}
-                    onChange={(event) => setCommentText(event.target.value)}
-                    rows={3}
-                    maxLength={1000}
-                  />
-                  {commentError && <p className="comment-error">{commentError}</p>}
-                  <button className="interaction-btn submit-comment" type="submit" disabled={commentLoading}>
-                    {commentLoading ? 'Envoi...' : 'Publier'}
-                  </button>
-                </form>
-              </>
-            ) : (
-              <p className="comment-empty">
-                <Link to="/login">Connectez-vous</Link> pour aimer ou commenter cette actualité.
-              </p>
-            )}
-
-            {comments.length > 0 ? (
-              <ul className="comments-list">
-                {comments.slice().reverse().map((comment) => (
-                  <li key={comment.id ?? `${comment.author}-${comment.created_at}`} className="comment-item">
-                    <div className="comment-header">
-                      <strong>{comment.author}</strong>
-                      <span>
-                        {comment.created_at ? new Date(comment.created_at).toLocaleString('fr-FR') : 'Maintenant'}
-                      </span>
-                    </div>
-                    <p className="comment-text">{comment.text}</p>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="comment-empty">Soyez le premier à réagir à cette actualité.</p>
-            )}
-          </div>
+          <DebateThread articleId={article.id} />
         </div>
       </div>
     </article>

@@ -3,6 +3,7 @@ import { Router } from 'express';
 import { pool } from '../db/index.js';
 import { getEmbedding } from '../lib/embeddings.js';
 import { optionalAuth, requireAuth } from '../middleware/requireAuth.js';
+import { articleCommentsRouter } from './comments.js';
 
 const router = Router();
 
@@ -64,7 +65,6 @@ function normalizeArticle(row, username = '') {
   return {
     ...article,
     likes_count: article.likes_count ?? 0,
-    comments: Array.isArray(article.comments) ? article.comments : [],
     liked_by_user: username ? likedBy.includes(username) : false,
   };
 }
@@ -105,7 +105,7 @@ router.get('/', optionalAuth, async (req, res) => {
       `SELECT a.id, title, content, summary, url,
       source, published_at, created_at, story_id,
       fact_check, historical_context, context_sources,
-      book_recommendations, likes_count, comments, liked_by, category, image_url
+      book_recommendations, likes_count, liked_by, category, image_url
       FROM articles a LEFT JOIN LATERAL
       (SELECT * from categories ORDER BY a.embedding <=> embedding LIMIT 1) c ON true
        ${where}
@@ -317,39 +317,7 @@ router.post('/:id/like', requireAuth, async (req, res) => {
   }
 });
 
-router.post('/:id/comments', requireAuth, async (req, res) => {
-  try {
-    const id = parseInt(req.params.id, 10);
-    const username = req.username;
-    if (isNaN(id)) return res.status(400).json({ error: 'Invalid article id' });
-
-    const text = String(req.body.text ?? '').trim().slice(0, 1000);
-
-    if (!text) {
-      return res.status(400).json({ error: 'Comment text is required' });
-    }
-
-    const comment = {
-      id: randomUUID(),
-      author: username,
-      text,
-      created_at: new Date().toISOString(),
-    };
-
-    const { rows } = await pool.query(
-      `UPDATE articles
-       SET comments = COALESCE(comments, '[]'::jsonb) || $2::jsonb
-       WHERE id = $1
-       RETURNING *`,
-      [id, JSON.stringify([comment])],
-    );
-
-    if (!rows.length) return res.status(404).json({ error: 'Article not found' });
-    res.status(201).json(normalizeArticle(rows[0], username));
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+router.use('/:id/comments', articleCommentsRouter);
 
 router.delete('/:id', async (req, res) => {
   try {

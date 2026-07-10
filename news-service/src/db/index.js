@@ -26,7 +26,6 @@ export async function initDB() {
       book_recommendations JSONB,
       embedding            vector(384),
       likes_count          INTEGER     DEFAULT 0,
-      comments             JSONB       DEFAULT '[]'::jsonb,
       liked_by             JSONB       DEFAULT '[]'::jsonb,
       image_url            TEXT
     )
@@ -60,6 +59,21 @@ export async function initDB() {
     )
   `);
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS comments (
+      id         SERIAL PRIMARY KEY,
+      article_id INTEGER     NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
+      parent_id  INTEGER     REFERENCES comments(id) ON DELETE CASCADE,
+      author     TEXT        NOT NULL,
+      content    TEXT        NOT NULL,
+      is_bot     BOOLEAN     NOT NULL DEFAULT false,
+      sources    JSONB,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_comments_article_id ON comments (article_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_comments_parent_id ON comments (parent_id)`);
+
   // Migrate existing tables
   await pool.query(`ALTER TABLE articles ADD COLUMN IF NOT EXISTS story_id UUID`);
   await pool.query(`ALTER TABLE articles ADD COLUMN IF NOT EXISTS fact_check JSONB`);
@@ -68,12 +82,31 @@ export async function initDB() {
   await pool.query(`ALTER TABLE articles ADD COLUMN IF NOT EXISTS book_recommendations JSONB`);
   await pool.query(`ALTER TABLE articles ADD COLUMN IF NOT EXISTS embedding vector(384)`);
   await pool.query(`ALTER TABLE articles ADD COLUMN IF NOT EXISTS likes_count INTEGER DEFAULT 0`);
-  await pool.query(`ALTER TABLE articles ADD COLUMN IF NOT EXISTS comments JSONB DEFAULT '[]'::jsonb`);
   await pool.query(`ALTER TABLE articles ADD COLUMN IF NOT EXISTS liked_by JSONB DEFAULT '[]'::jsonb`);
   await pool.query(`ALTER TABLE articles ADD COLUMN IF NOT EXISTS image_url TEXT`);
   await pool.query(`UPDATE articles SET likes_count = 0 WHERE likes_count IS NULL`);
-  await pool.query(`UPDATE articles SET comments = '[]'::jsonb WHERE comments IS NULL`);
   await pool.query(`UPDATE articles SET liked_by = '[]'::jsonb WHERE liked_by IS NULL`);
+
+  // One-off: migrate flat comments from the old articles.comments JSONB
+  // column (pre-threading) into the new comments table as top-level rows,
+  // then drop the column. Guarded so it only runs once (skipped once the
+  // comments table has any rows, including after a fresh install).
+  const hasLegacyColumn = await pool.query(`
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'articles' AND column_name = 'comments'
+  `);
+  if (hasLegacyColumn.rows.length) {
+    await pool.query(`
+      INSERT INTO comments (article_id, author, content, created_at)
+      SELECT a.id,
+             COALESCE(elem->>'author', 'inconnu'),
+             COALESCE(NULLIF(elem->>'text', ''), '(vide)'),
+             COALESCE((elem->>'created_at')::timestamptz, NOW())
+      FROM articles a, jsonb_array_elements(COALESCE(a.comments, '[]'::jsonb)) AS elem
+      WHERE NOT EXISTS (SELECT 1 FROM comments)
+    `);
+    await pool.query(`ALTER TABLE articles DROP COLUMN comments`);
+  }
 
   // Keyword search uses 'simple' (no stemming/stopwords) rather than
   // 'english' — the corpus mixes English and French (Le Monde) content.

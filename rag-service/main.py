@@ -49,8 +49,15 @@ class SearchRequest(BaseModel):
     limit: int = 8
 
 
+class QuotedComment(BaseModel):
+    author: str
+    content: str
+
+
 class ChatRequest(BaseModel):
     question: str
+    article_id: int | None = None
+    quoted_comment: QuotedComment | None = None
 
 
 @app.get("/health")
@@ -201,11 +208,11 @@ async def trigger_backfill(background_tasks: BackgroundTasks):
 # Search & chat
 # ---------------------------------------------------------------------------
 
-async def _retrieve(query: str, limit: int) -> list[dict]:
+async def _retrieve(query: str, limit: int, article_id: int | None = None) -> list[dict]:
     embedding = await embed_query(query)
     resp = await http_client.post(
         f"{NEWS_SERVICE_URL}/chunks/search",
-        json={"query_embedding": embedding, "query_text": query, "limit": limit},
+        json={"query_embedding": embedding, "query_text": query, "limit": limit, "article_id": article_id},
     )
     return resp.json()
 
@@ -242,11 +249,23 @@ async def chat(req: ChatRequest):
     if not groq_client:
         return {"answer": "Le chat n'est pas configuré (GROQ_API_KEY manquante).", "sources": []}
 
-    chunks = await _retrieve(req.question, limit=8)
+    chunks = await _retrieve(req.question, limit=8, article_id=req.article_id)
+    if not chunks and req.article_id is not None:
+        # Article not indexed yet (or nothing relevant in it) — fall back to
+        # a global search rather than answering "je ne sais pas" outright.
+        chunks = await _retrieve(req.question, limit=8)
     if not chunks:
         return {"answer": "Je n'ai trouvé aucun article pertinent pour répondre à cette question.", "sources": []}
 
     context = "\n\n".join(f"[{i + 1}] {c['title']} ({c['source']}): {c['text']}" for i, c in enumerate(chunks))
+
+    quoted_instruction = ""
+    if req.quoted_comment:
+        quoted_instruction = (
+            f'\nDans ta réponse, vérifie en particulier l\'exactitude de cette affirmation de '
+            f'@{req.quoted_comment.author} : "{req.quoted_comment.content}" — sans répéter '
+            f'cette phrase mot pour mot, reformule-la naturellement.'
+        )
 
     prompt = f"""Tu réponds à des questions en te basant UNIQUEMENT sur les extraits d'articles ci-dessous. Cite tes sources avec leur numéro entre crochets, ex: [1]. Si les extraits ne permettent pas de répondre, dis "Je ne sais pas" — n'invente rien.
 
@@ -254,6 +273,7 @@ EXTRAITS:
 {context}
 
 QUESTION: {req.question}
+{quoted_instruction}
 
 Réponds en 2 à 4 phrases, dans la même langue que la question."""
 

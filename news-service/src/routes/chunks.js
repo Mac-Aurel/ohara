@@ -37,6 +37,7 @@ router.post('/search', async (req, res) => {
   try {
     const { query_embedding: queryEmbedding, query_text: queryText } = req.body;
     const limit = Math.min(50, Math.max(1, parseInt(req.body.limit, 10) || 8));
+    const articleId = Number.isInteger(req.body.article_id) ? req.body.article_id : null;
     if (!Array.isArray(queryEmbedding)) {
       return res.status(400).json({ error: 'query_embedding is required' });
     }
@@ -45,6 +46,7 @@ router.post('/search', async (req, res) => {
       `WITH vector_ranked AS (
          SELECT id, ROW_NUMBER() OVER (ORDER BY embedding <=> $1::vector) AS rank
          FROM article_chunks
+         WHERE $4::int IS NULL OR article_id = $4
          ORDER BY embedding <=> $1::vector
          LIMIT 50
        ),
@@ -52,6 +54,7 @@ router.post('/search', async (req, res) => {
          SELECT id, ROW_NUMBER() OVER (ORDER BY ts_rank(tsv, websearch_to_tsquery('simple', $2)) DESC) AS rank
          FROM article_chunks
          WHERE $2 <> '' AND tsv @@ websearch_to_tsquery('simple', $2)
+           AND ($4::int IS NULL OR article_id = $4)
          LIMIT 50
        )
        SELECT c.id, c.article_id, c.chunk_index, c.text,
@@ -66,7 +69,7 @@ router.post('/search', async (req, res) => {
        WHERE v.id IS NOT NULL OR k.id IS NOT NULL
        ORDER BY score DESC
        LIMIT $3`,
-      [`[${queryEmbedding.join(',')}]`, queryText || '', limit],
+      [`[${queryEmbedding.join(',')}]`, queryText || '', limit, articleId],
     );
 
     res.json(rows);
