@@ -12,7 +12,8 @@ export default function HomePage() {
   const { token, profile } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const activeSource = searchParams.get('source');
-  const activeCategory = searchParams.get('category');
+  const categoryParam = searchParams.get('category') ?? '';
+  const activeCategories = categoryParam ? categoryParam.split(',') : [];
 
   const [articles, setArticles] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -27,7 +28,7 @@ export default function HomePage() {
     try {
       const params = new URLSearchParams();
       if (activeSource) params.set('source', activeSource);
-      if (activeCategory) params.set('category', activeCategory);
+      if (categoryParam) params.set('category', categoryParam);
       if (profile?.interests?.length) params.set('topics', profile.interests.join(','));
 
       const query = params.toString();
@@ -41,7 +42,7 @@ export default function HomePage() {
     } finally {
       setLoading(false);
     }
-  }, [activeSource, activeCategory, profile, token]);
+  }, [activeSource, categoryParam, profile, token]);
 
   const loadCategories = useCallback(async () => {
     try {
@@ -91,6 +92,20 @@ export default function HomePage() {
     });
   }
 
+  function toggleCategory(category) {
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      const selected = (next.get('category') ?? '').split(',').filter(Boolean);
+      const updated = selected.includes(category)
+        ? selected.filter((c) => c !== category)
+        : [...selected, category];
+
+      if (updated.length) next.set('category', updated.join(','));
+      else next.delete('category');
+      return next;
+    });
+  }
+
   return (
     <>
       <div className="hero">
@@ -128,7 +143,7 @@ export default function HomePage() {
             {categories.length > 0 && (
               <div className="source-bar">
                 <button
-                  className={`source-btn${!activeCategory ? ' active' : ''}`}
+                  className={`source-btn${activeCategories.length === 0 ? ' active' : ''}`}
                   onClick={() => setFilter('category', null)}
                 >
                   Toutes les catégories
@@ -136,8 +151,8 @@ export default function HomePage() {
                 {categories.map((category) => (
                   <button
                     key={category}
-                    className={`source-btn${activeCategory === category ? ' active' : ''}`}
-                    onClick={() => setFilter('category', category)}
+                    className={`source-btn${activeCategories.includes(category) ? ' active' : ''}`}
+                    onClick={() => toggleCategory(category)}
                   >
                     {category}
                   </button>

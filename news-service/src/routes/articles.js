@@ -98,9 +98,11 @@ router.get('/', optionalAuth, async (req, res) => {
     const conditions = [];
     const params     = [];
 
+    const categories = category ? String(category).split(',').map((c) => c.trim()).filter(Boolean) : [];
+
     if (source)   { params.push(source);   conditions.push(`source = $${params.length}`);   }
     if (story_id) { params.push(story_id); conditions.push(`story_id = $${params.length}`); }
-    if (category) { params.push(category); conditions.push(`c.category = $${params.length}`); }
+    if (categories.length) { params.push(categories); conditions.push(`c.category = ANY($${params.length})`); }
 
     params.push(username);
     const currentUserParam = params.length;
