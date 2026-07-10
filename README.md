@@ -13,6 +13,9 @@ Ohara est un agrégateur d'actualités construit en microservices. Il va cherche
 - Recherche sémantique et chat conversationnel sur le corpus d'articles (RAG)
 - Authentification JWT (inscription, connexion, profil avec centres d'intérêt)
 - Rafraîchissement automatique du flux toutes les 2h côté serveur, plus un bouton manuel pour forcer un scrape
+- Débats threadés sous chaque article (réponses imbriquées, suppression de ses propres commentaires) ; mentionner `@newsbook` dans un message pose une question au RAG, scopée à l'article courant, et la réponse est postée automatiquement dans le fil avec ses sources
+- Articles à enregistrer pour plus tard (bouton sur les cards et la page article, liste dédiée sur `/saved`)
+- Filtre par catégorie multi-sélection sur le fil d'accueil
 
 ## Architecture
 
@@ -30,6 +33,7 @@ API Gateway (port 8080), reverse proxy vers les services internes
   │                                ├── Wikipedia API    sources historiques
   │                                └── Open Library API métadonnées livres
   ├── /api/users  ──► news-service (5001)              register / login JWT
+  ├── /api/comments ─► news-service (5001)              débats threadés, @newsbook
   └── /api/rag    ──► rag-service (5005)                recherche + chat
 ```
 
@@ -69,23 +73,29 @@ La recherche combine deux méthodes de scoring qui se complètent : une recherch
 
 ### news-service (Node.js, Express, PostgreSQL)
 
-Le cœur de la persistance. Il expose les routes articles, utilisateurs et chunks, et porte toute la logique de clustering par histoire : quand un article est sauvegardé, son titre est transformé en embedding puis comparé à ceux déjà en base. Si la similarité dépasse 0.8, l'article rejoint le `story_id` existant, sinon il en reçoit un nouveau. C'est ce qui permet d'afficher plusieurs sources qui couvrent la même actualité comme une seule histoire plutôt que comme des doublons.
+Le cœur de la persistance. Il expose les routes articles, utilisateurs, chunks et commentaires, et porte toute la logique de clustering par histoire : quand un article est sauvegardé, son titre est transformé en embedding puis comparé à ceux déjà en base. Si la similarité dépasse 0.8, l'article rejoint le `story_id` existant, sinon il en reçoit un nouveau. C'est ce qui permet d'afficher plusieurs sources qui couvrent la même actualité comme une seule histoire plutôt que comme des doublons.
 
 La catégorisation fonctionne sur un principe voisin : dix catégories fixes (Politics, World, Economics, Technology, Science, Health, Environment, Culture, Sports, Crime & Justice) sont pré-calculées en embeddings une seule fois via un script de seed, et chaque article se voit attribuer la catégorie la plus proche au moment de la lecture, par une jointure SQL plutôt qu'un traitement séparé.
 
 L'authentification est un JWT classique signé côté serveur (bcrypt pour les mots de passe, expiration à 7 jours), sans session côté serveur : le token est décodé côté client pour en extraire le nom d'utilisateur.
 
+Les débats vivent dans une table `comments` (`parent_id` auto-référencé, suppression en cascade), pas dans un micro-service séparé. Quand un message contient `@newsbook`, news-service extrait la question, va chercher le commentaire parent si le message est une réponse (pour donner au RAG l'affirmation à vérifier), puis appelle directement `rag-service` en HTTP interne (les deux services partagent le réseau `db_net`, pas besoin de repasser par l'API Gateway) et poste la réponse comme un nouveau commentaire, avec `author = "Newsbook"` et `is_bot = true`. Un échec de cet appel n'empêche jamais le commentaire de l'utilisateur d'être publié.
+
+Les articles enregistrés vivent dans une table de jointure `saved_articles` (`username`, `article_id`) plutôt qu'un tableau JSON sur `articles` comme les likes, parce qu'il faut pouvoir lister efficacement "mes articles enregistrés" — un scan de toutes les lignes `articles` pour y chercher un JSON ne passerait pas à l'échelle.
+
 ### api-gateway (Node.js, Express)
 
-Volontairement très simple : un reverse proxy (`http-proxy-middleware`) qui redirige `/api/articles`, `/api/users`, `/api/scrape`, `/api/summarize` et `/api/rag` vers le bon service interne, en réécrivant le chemin. Aucune logique métier ne doit vivre ici, c'est juste la porte d'entrée unique du frontend.
+Volontairement très simple : un reverse proxy (`http-proxy-middleware`) qui redirige `/api/articles`, `/api/users`, `/api/comments`, `/api/scrape`, `/api/summarize` et `/api/rag` vers le bon service interne, en réécrivant le chemin. Aucune logique métier ne doit vivre ici, c'est juste la porte d'entrée unique du frontend.
 
 ### frontend (React, Vite)
 
-Le design suit de près celui de raiseurvoice : police Geist en majuscules espacées, palette noir/blanc/gris, cards sans fioritures. La page d'accueil a un hero centré, une barre de recherche autonome (soulignée, pas de bouton chatbot mélangé avec la recherche classique) et une grille uniforme de cards. La page d'un article affiche l'image en bandeau plein cadre tout en haut, collée au header, avec le titre et les métadonnées centrés en dessous.
+Le design suit de près celui de raiseurvoice : police Geist en majuscules espacées, palette noir/blanc/gris, cards sans fioritures. La page d'accueil a un hero centré, une barre de recherche autonome (soulignée, pas de bouton chatbot mélangé avec la recherche classique) et une grille uniforme de cards, avec un filtre de catégories en multi-sélection. La page d'un article affiche l'image en bandeau plein cadre tout en haut, collée au header, avec le titre et les métadonnées centrés en dessous.
 
 La recherche sémantique et le chat conversationnel (RAG) sont volontairement séparés dans l'interface : la recherche vit dans sa propre barre sur la page d'accueil, le chat vit dans un widget flottant à part (`ChatWidget`), pour ne pas mélanger deux usages différents dans un seul composant à onglets.
 
 L'authentification côté client passe par un contexte React (`AuthProvider`) qui garde le token JWT dans le `localStorage` et décode le payload pour en tirer le nom d'utilisateur, sans jamais interroger le serveur juste pour ça.
+
+Le débat sous chaque article (`DebateThread`) reconstruit un arbre côté client à partir d'une liste plate renvoyée par l'API (`parent_id` par commentaire), avec un formulaire unique qui bascule en mode "réponse à" plutôt qu'un champ par commentaire. Les articles enregistrés ont leur propre page (`/saved`), accessible depuis le header une fois connecté.
 
 ## Stack technique
 
@@ -182,8 +192,10 @@ Voir issue [#11](https://github.com/Mac-Aurel/ohara/issues/11) pour les étapes 
 |---|---|---|
 | Auth utilisateurs JWT | [#4](https://github.com/Mac-Aurel/ohara/issues/4) | fait, fermée |
 | Clustering par embeddings | [#15](https://github.com/Mac-Aurel/ohara/issues/15) | fait, fermée |
-| Scraping automatique périodique | [#10](https://github.com/Mac-Aurel/ohara/issues/10) | scraper stateless + scheduler local en place, reste ouverte tant qu'un vrai cron-job.org n'est pas branché sur l'URL publique |
+| Scraping automatique périodique | [#10](https://github.com/Mac-Aurel/ohara/issues/10) | fait, fermée — scheduler interne à `docker-compose.yml` plutôt que cron-job.org (qui a besoin d'une URL publique, prévu pour après #11) |
+| Débats threadés par article + `@newsbook` | [#5](https://github.com/Mac-Aurel/ohara/issues/5) | fait, fermée — dans `news-service`, pas un service séparé |
+| Frontend v2 (fact-check, contexte, auth, débats) | [#6](https://github.com/Mac-Aurel/ohara/issues/6) | fait, fermée |
+| Articles enregistrés | — | fait, pas d'issue dédiée |
+| Filtre catégories multi-sélection | — | fait, pas d'issue dédiée |
 | Flux RSS Reuters mort | [#17](https://github.com/Mac-Aurel/ohara/issues/17) | à faire |
-| Débats threadés par article | [#5](https://github.com/Mac-Aurel/ohara/issues/5) | à faire, il n'y a aujourd'hui que des commentaires plats |
-| Frontend v2 (fact-check, contexte, auth, débats) | [#6](https://github.com/Mac-Aurel/ohara/issues/6) | en cours, il ne manque plus que les débats |
-| Déploiement Oracle Cloud | [#11](https://github.com/Mac-Aurel/ohara/issues/11) | à faire |
+| Déploiement Oracle Cloud | [#11](https://github.com/Mac-Aurel/ohara/issues/11) | à faire, prochaine étape |
