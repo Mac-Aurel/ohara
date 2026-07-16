@@ -22,6 +22,8 @@ services:
             - v2
             - --model-id
             - intfloat/multilingual-e5-small
+            - --model-id
+            - Alibaba-NLP/gte-multilingual-reranker-base
             - --port
             - "7997"
         ports:
@@ -30,6 +32,7 @@ services:
             - db_net
         healthcheck:
             test: ["CMD-SHELL", "curl -f http://localhost:7997/ || exit 1"]
+            start_period: 90s
         volumes:
             - huggingface_cache:/app/.cache
 

@@ -15,6 +15,7 @@ EMBEDDINGS_URL   = os.getenv("EMBEDDINGS_URL",   "http://embeddings:7997")
 GROQ_API_KEY     = os.getenv("GROQ_API_KEY", "")
 GROQ_MODEL       = "llama-3.1-8b-instant"
 EMBEDDINGS_MODEL = "intfloat/multilingual-e5-small"
+RERANK_MODEL     = "Alibaba-NLP/gte-multilingual-reranker-base"
 
 groq_client: AsyncGroq | None = (
     AsyncGroq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
@@ -28,6 +29,13 @@ _ENCODING = tiktoken.get_encoding("cl100k_base")
 
 _MIN_FULL_BODY_LENGTH = 500
 _FETCH_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; OharaBot/1.0)"}
+
+# Hybrid search is cheap but its score (RRF over two independent rankings)
+# is a weak relevance signal. We over-fetch candidates from it, then let a
+# cross-encoder reranker — which scores (query, chunk) pairs jointly rather
+# than comparing two isolated vectors — pick the real best ones out of that
+# pool before we hand them to Groq.
+_RERANK_CANDIDATE_POOL = 25
 
 # Bounds how many articles are chunked/embedded/fetched concurrently.
 _INDEX_SEMAPHORE = asyncio.Semaphore(5)
@@ -208,13 +216,37 @@ async def trigger_backfill(background_tasks: BackgroundTasks):
 # Search & chat
 # ---------------------------------------------------------------------------
 
+async def _rerank(query: str, chunks: list[dict], top_n: int) -> list[dict]:
+    if not chunks:
+        return chunks
+
+    try:
+        resp = await http_client.post(
+            f"{EMBEDDINGS_URL}/rerank",
+            json={
+                "model": RERANK_MODEL,
+                "query": query,
+                "documents": [c["text"] for c in chunks],
+                "top_n": top_n,
+            },
+        )
+        resp.raise_for_status()
+        results = resp.json()["results"]
+        return [chunks[r["index"]] for r in results]
+    except Exception as exc:
+        print(f"[rag-service] rerank failed, falling back to hybrid-search order: {exc}")
+        return chunks[:top_n]
+
+
 async def _retrieve(query: str, limit: int, article_id: int | None = None) -> list[dict]:
     embedding = await embed_query(query)
+    candidate_limit = max(_RERANK_CANDIDATE_POOL, limit)
     resp = await http_client.post(
         f"{NEWS_SERVICE_URL}/chunks/search",
-        json={"query_embedding": embedding, "query_text": query, "limit": limit, "article_id": article_id},
+        json={"query_embedding": embedding, "query_text": query, "limit": candidate_limit, "article_id": article_id},
     )
-    return resp.json()
+    candidates = resp.json()
+    return await _rerank(query, candidates, limit)
 
 
 @app.post("/search")
