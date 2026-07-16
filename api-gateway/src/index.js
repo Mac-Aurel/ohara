@@ -11,7 +11,12 @@ const SCRAPER_URL = process.env.SCRAPER_URL || 'http://scraper:5002';
 const SUMMARIZER_URL = process.env.SUMMARIZER_URL || 'http://summarizer:5003';
 const RAG_SERVICE_URL = process.env.RAG_SERVICE_URL || 'http://rag-service:5005';
 
-app.use(cors());
+// Unset in local dev (open to any origin). Set to the public domain in
+// prod, since api-gateway sits behind Caddy but can still be reached
+// directly if its port ever leaks past the firewall.
+const CORS_ORIGIN = process.env.CORS_ORIGIN;
+
+app.use(cors(CORS_ORIGIN ? { origin: CORS_ORIGIN } : undefined));
 app.use(morgan('combined'));
 
 app.use(

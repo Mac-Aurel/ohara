@@ -27,7 +27,7 @@ services:
             - --port
             - "7997"
         ports:
-            - "7997:7997"
+            - "${BIND_ADDR:-0.0.0.0}:7997:7997"
         networks:
             - db_net
         healthcheck:
@@ -45,7 +45,7 @@ services:
             JWT_SECRET: ${JWT_SECRET}
             PORT: 5001
         ports:
-            - "5001:5001"
+            - "${BIND_ADDR:-0.0.0.0}:5001:5001"
         depends_on:
             postgres:
                 condition: service_healthy
@@ -60,7 +60,7 @@ services:
         environment:
             PORT: 5003
         ports:
-            - "5003:5003"
+            - "${BIND_ADDR:-0.0.0.0}:5003:5003"
         networks:
             - db_net
         restart: unless-stopped
@@ -71,7 +71,7 @@ services:
             PORT: 5004
             GROQ_API_KEY: ${GROQ_API_KEY}
         ports:
-            - "5004:5004"
+            - "${BIND_ADDR:-0.0.0.0}:5004:5004"
         networks:
             - db_net
         healthcheck:
@@ -93,7 +93,7 @@ services:
             EMBEDDINGS_URL: http://embeddings:7997
             GROQ_API_KEY: ${GROQ_API_KEY}
         ports:
-            - "5005:5005"
+            - "${BIND_ADDR:-0.0.0.0}:5005:5005"
         depends_on:
             news-service:
                 condition: service_started
@@ -112,7 +112,7 @@ services:
             FACT_CHECKER_URL: http://fact-checker:5004
             RAG_SERVICE_URL: http://rag-service:5005
         ports:
-            - "5002:5002"
+            - "${BIND_ADDR:-0.0.0.0}:5002:5002"
         depends_on:
             news-service:
                 condition: service_started
@@ -135,7 +135,7 @@ services:
             SUMMARIZER_URL: http://summarizer:5003
             RAG_SERVICE_URL: http://rag-service:5005
         ports:
-            - "8080:8080"
+            - "${BIND_ADDR:-0.0.0.0}:8080:8080"
         depends_on:
             - news-service
             - scraper
@@ -146,12 +146,10 @@ services:
             - db_net
         restart: unless-stopped
 
-    # Stand-in for cron-job.org while developing locally (cron-job.org needs
-    # a publicly reachable URL, which localhost isn't). Its only job is to
-    # POST /api/scrape on a timer from outside the scraper, so the scraper
+    # Triggers a scrape on a timer from outside the scraper, so the scraper
     # itself never has to know about scheduling and can stay stateless.
-    # Swap this container out for a real cron-job.org job pointed at the
-    # public api-gateway URL once #11 (cloud deploy) happens.
+    # Runs the same way in prod (single-VM deploy, #11) — no external
+    # scheduling service needed.
     scheduler:
         image: curlimages/curl:latest
         environment:
@@ -177,7 +175,7 @@ services:
         depends_on:
             - api-gateway
         ports:
-            - "3000:80"
+            - "${BIND_ADDR:-0.0.0.0}:3000:80"
         networks:
             - web_net
         restart: unless-stopped
