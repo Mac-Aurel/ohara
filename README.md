@@ -178,13 +178,20 @@ Le flux Reuters ne renvoie actuellement plus aucune entrée (`feedparser` retour
 
 ## Déploiement cloud (cible, sans frais)
 
-| Service | Rôle |
-|---|---|
-| Vercel | Frontend React (CDN global) |
-| Oracle Cloud ARM | Backend Docker Compose (VM 4 OCPU / 24 GB, always free) |
-| Neon | PostgreSQL serverless (500 MB, sans expiry) |
+Le plan initial de l'issue [#11](https://github.com/Mac-Aurel/ohara/issues/11) éclatait le déploiement sur trois
+services (Vercel, Neon, cron-job.org). Écart par rapport à la spec : la VM ARM Oracle Cloud gratuite
+(4 OCPU / 24 GB) suffit largement pour les sept services, donc tout tourne finalement sur une seule VM —
+Postgres, scheduler et frontend inclus — plutôt que d'être éclaté.
 
-Voir issue [#11](https://github.com/Mac-Aurel/ohara/issues/11) pour les étapes détaillées. Pas encore fait, le projet tourne pour l'instant uniquement en local.
+| Composant | Rôle |
+|---|---|
+| VM Oracle Cloud ARM (Ampere A1, always free) | Tous les services (`docker-compose.yml` + `docker-compose.prod.yml`) |
+| Caddy | Reverse proxy devant le frontend, HTTPS automatique (Let's Encrypt) via un domaine DuckDNS |
+| `BIND_ADDR=127.0.0.1` | Verrouille les ports de chaque service à l'intérieur de la VM ; seul Caddy (80/443) est exposé |
+
+Voir issue [#11](https://github.com/Mac-Aurel/ohara/issues/11) pour le détail. Pas encore fait, le projet tourne
+pour l'instant uniquement en local — reste à provisionner la VM côté Oracle Cloud et pointer un sous-domaine
+DuckDNS dessus.
 
 ## État d'avancement
 
@@ -198,4 +205,4 @@ Voir issue [#11](https://github.com/Mac-Aurel/ohara/issues/11) pour les étapes 
 | Articles enregistrés | — | fait, pas d'issue dédiée |
 | Filtre catégories multi-sélection | — | fait, pas d'issue dédiée |
 | Flux RSS Reuters mort | [#17](https://github.com/Mac-Aurel/ohara/issues/17) | à faire |
-| Déploiement Oracle Cloud | [#11](https://github.com/Mac-Aurel/ohara/issues/11) | à faire, prochaine étape |
+| Déploiement Oracle Cloud | [#11](https://github.com/Mac-Aurel/ohara/issues/11) | config single-VM prête (`docker-compose.prod.yml`, `make prod`), reste à provisionner la VM |

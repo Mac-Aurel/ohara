@@ -1,13 +1,23 @@
-COMPOSE = docker compose
-API     = http://localhost:8080
+COMPOSE      = docker compose
+COMPOSE_PROD = docker compose -f docker-compose.yml -f docker-compose.prod.yml
+API          = http://localhost:8080
 
-.PHONY: up dev down build logs scrape articles test
+.PHONY: up dev down build logs scrape articles test prod prod-down prod-logs
 
 up:
 	$(COMPOSE) up --build
 
 down:
 	$(COMPOSE) down
+
+prod:
+	$(COMPOSE_PROD) up --build -d
+
+prod-down:
+	$(COMPOSE_PROD) down
+
+prod-logs:
+	$(COMPOSE_PROD) logs -f
 
 build:
 	$(COMPOSE) build
