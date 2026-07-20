@@ -20,25 +20,23 @@ function parseTopics(rawTopics) {
     .slice(0, 12);
 }
 
-const STORY_SIMILARITY_THRESHOLD = 0.86;
+// Tried comparing against each story's centroid (the average embedding of
+// its members) instead of the nearest single article, to resist chaining.
+// It backfired: once a story has enough members, its centroid regresses
+// toward "generic English news text" and starts attracting anything of the
+// same language/style regardless of topic — verified live, it merged 29
+// unrelated BBC/Guardian articles into one story. Reverted to nearest-
+// neighbour, but with a threshold recalibrated from real data instead of
+// guessed: measured pairwise similarity on this corpus put genuine
+// duplicates (same story, different source) at 0.89-0.96, and unrelated
+// articles as high as 0.84 — 0.88 sits in the gap between them.
+const STORY_SIMILARITY_THRESHOLD = 0.88;
 
-// Compares the new article against each existing story's centroid (the
-// average embedding of its members), not against the single nearest
-// article. Comparing to one nearest neighbour lets stories drift over a
-// chain of individually-plausible links — article A joins B's story, C
-// later joins on its similarity to A alone, and ends up bundled with B
-// despite A and C having nothing in common. A centroid moves only as far
-// as its members pull it, which resists that drift.
 async function resolveStoryId(embedding) {
   const { rows } = await pool.query(
-    `SELECT story_id, 1 - (centroid <=> $1::vector) AS similarity
-     FROM (
-       SELECT story_id, AVG(embedding) AS centroid
-       FROM articles
-       WHERE story_id IS NOT NULL
-       GROUP BY story_id
-     ) story_centroids
-     ORDER BY centroid <=> $1::vector
+    `SELECT story_id, 1 - (embedding <=> $1::vector) AS similarity
+     FROM articles
+     ORDER BY embedding <=> $1::vector
      LIMIT 1`,
     [`[${embedding.join(",")}]`],
   );
