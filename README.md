@@ -1,6 +1,6 @@
 # Ohara
 
-Ohara est un agrégateur d'actualités construit en microservices. Il va chercher des flux RSS, résume les articles, vérifie les faits avec un LLM, ajoute du contexte historique appuyé sur Wikipedia et propose des recommandations de lecture. Le tout est servi par une interface React inspirée du site raiseurvoice (typographie en majuscules, palette noir et blanc, cards épurées).
+Ohara est un agrégateur d'actualités construit en microservices. Il va chercher des flux RSS, résume les articles, vérifie les faits avec un LLM, ajoute du contexte historique appuyé sur Wikipedia et propose des recommandations de lecture. Le tout est servi par une interface React (typographie en majuscules, palette noir et blanc, cards épurées).
 
 ## Fonctionnalités
 
