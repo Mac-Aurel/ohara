@@ -20,37 +20,32 @@ function parseTopics(rawTopics) {
     .slice(0, 12);
 }
 
-// Checks to see if any existing articles are similar enough, or mints a fresh UUID.
-async function resolveStoryId(title, embedding) {  
+const STORY_SIMILARITY_THRESHOLD = 0.86;
 
-  //console.log(`Looking up embedding for title: ${title}`);
+// Compares the new article against each existing story's centroid (the
+// average embedding of its members), not against the single nearest
+// article. Comparing to one nearest neighbour lets stories drift over a
+// chain of individually-plausible links — article A joins B's story, C
+// later joins on its similarity to A alone, and ends up bundled with B
+// despite A and C having nothing in common. A centroid moves only as far
+// as its members pull it, which resists that drift.
+async function resolveStoryId(embedding) {
+  const { rows } = await pool.query(
+    `SELECT story_id, 1 - (centroid <=> $1::vector) AS similarity
+     FROM (
+       SELECT story_id, AVG(embedding) AS centroid
+       FROM articles
+       WHERE story_id IS NOT NULL
+       GROUP BY story_id
+     ) story_centroids
+     ORDER BY centroid <=> $1::vector
+     LIMIT 1`,
+    [`[${embedding.join(",")}]`],
+  );
 
-  const { rows: similar_articles } = await pool.query(
-      `SELECT
-      story_id, title,
-      1 - (embedding <=> $1::vector) AS similarity
-      FROM articles
-      ORDER BY embedding <=> $1::vector
-      LIMIT 2;`,
-      [`[${embedding.join(",")}]`]
-  )  
-
-  const SIMILARITY_THRESHOLD = 0.86;
-
-  if (similar_articles.length > 0) {
-    /* console.log(`First Entry: ${similar_articles[0].title}`)
-
-    for (const article of similar_articles) {
-      console.log(`${article.title}, with similarity ${article.similarity}`)
-    } */
-
-    if (similar_articles[0].similarity > SIMILARITY_THRESHOLD) {
-      // console.log(`Returning Story Id: ${similar_articles[0].story_id}`)
-      return similar_articles[0].story_id;
-    }
+  if (rows.length > 0 && rows[0].similarity > STORY_SIMILARITY_THRESHOLD) {
+    return rows[0].story_id;
   }
-
-  //console.log(`Returning Random Story Id`)
 
   return randomUUID();
 }
@@ -269,7 +264,7 @@ router.post('/', async (req, res) => {
     // summary carries the actual who/what/when that separates them.
     const embedding = await getEmbedding(summary ? `${title}\n${summary}` : title);
 
-    const story_id = await resolveStoryId(title, embedding);
+    const story_id = await resolveStoryId(embedding);
 
     //console.log(`Received Story Id: ${story_id}`)
 

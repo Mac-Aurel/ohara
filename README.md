@@ -73,7 +73,9 @@ La recherche combine deux méthodes de scoring qui se complètent : une recherch
 
 ### news-service (Node.js, Express, PostgreSQL)
 
-Le cœur de la persistance. Il expose les routes articles, utilisateurs, chunks et commentaires, et porte toute la logique de clustering par histoire : quand un article est sauvegardé, son titre est transformé en embedding puis comparé à ceux déjà en base. Si la similarité dépasse 0.8, l'article rejoint le `story_id` existant, sinon il en reçoit un nouveau. C'est ce qui permet d'afficher plusieurs sources qui couvrent la même actualité comme une seule histoire plutôt que comme des doublons.
+Le cœur de la persistance. Il expose les routes articles, utilisateurs, chunks et commentaires, et porte toute la logique de clustering par histoire : quand un article est sauvegardé, son titre + résumé sont transformés en embedding puis comparés au centroïde (la moyenne des embeddings) de chaque histoire déjà en base — pas au seul article le plus proche, pour éviter qu'une histoire dérive par chaînage (A rejoint B, C rejoint A, et se retrouve associé à B sans lien réel avec lui). Si la similarité avec le centroïde le plus proche dépasse 0.86, l'article rejoint ce `story_id`, sinon il en reçoit un nouveau. C'est ce qui permet d'afficher plusieurs sources qui couvrent la même actualité comme une seule histoire plutôt que comme des doublons.
+
+Le fact-check d'une histoire n'est calculé qu'une fois, sur l'article le plus complet du groupe scrapé dans le même run, et propagé aux seuls autres articles de ce même run (pas à `WHERE story_id = X` en base) — pour qu'un mauvais rapprochement ne puisse pas écraser le fact-check d'un article ancien et sans rapport.
 
 La catégorisation fonctionne sur un principe voisin : dix catégories fixes (Politics, World, Economics, Technology, Science, Health, Environment, Culture, Sports, Crime & Justice) sont pré-calculées en embeddings une seule fois via un script de seed, et chaque article se voit attribuer la catégorie la plus proche au moment de la lecture, par une jointure SQL plutôt qu'un traitement séparé.
 
