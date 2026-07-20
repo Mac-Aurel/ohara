@@ -35,7 +35,7 @@ async function resolveStoryId(title, embedding) {
       [`[${embedding.join(",")}]`]
   )  
 
-  const SIMILARITY_THRESHOLD = 0.8;
+  const SIMILARITY_THRESHOLD = 0.86;
 
   if (similar_articles.length > 0) {
     /* console.log(`First Entry: ${similar_articles[0].title}`)
@@ -162,23 +162,30 @@ router.get('/categories', async (req, res) => {
   }
 });
 
-router.put('/story/:story_id/enrich', async (req, res) => {
+// Scoped to the explicit article ids the scraper grouped into this story
+// during the current run — NOT `WHERE story_id = X`. Story clustering is a
+// similarity heuristic and does misfire (see #24/#1031 incident); broadcasting
+// by story_id would silently overwrite the fact-check of any older, unrelated
+// article that a bad match had previously lumped into the same story_id.
+router.put('/enrich', async (req, res) => {
   try {
-    const { story_id } = req.params;
-    const { fact_check, historical_context, context_sources, book_recommendations } = req.body;
+    const { article_ids, fact_check, historical_context, context_sources, book_recommendations } = req.body;
+    const ids = Array.isArray(article_ids) ? article_ids.map((id) => parseInt(id, 10)).filter(Number.isInteger) : [];
+    if (!ids.length) return res.status(400).json({ error: 'article_ids is required' });
+
     await pool.query(
       `UPDATE articles
        SET fact_check           = $1,
            historical_context   = $2,
            context_sources      = $3,
            book_recommendations = $4
-       WHERE story_id = $5`,
+       WHERE id = ANY($5)`,
       [
         fact_check           ? JSON.stringify(fact_check)           : null,
         historical_context   ?? null,
         context_sources      ? JSON.stringify(context_sources)      : null,
         book_recommendations ? JSON.stringify(book_recommendations) : null,
-        story_id,
+        ids,
       ],
     );
     res.status(204).end();
@@ -257,7 +264,10 @@ router.post('/', async (req, res) => {
       fact_check, historical_context, context_sources, book_recommendations,
     } = req.body;
 
-    const embedding = await getEmbedding(title);
+    // Title alone is too short/generic to tell stories apart reliably (two
+    // unrelated articles can score >0.85 on title similarity alone) — the
+    // summary carries the actual who/what/when that separates them.
+    const embedding = await getEmbedding(summary ? `${title}\n${summary}` : title);
 
     const story_id = await resolveStoryId(title, embedding);
 

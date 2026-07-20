@@ -134,10 +134,16 @@ async def scrape(req: ScrapeRequest = ScrapeRequest()) -> dict:
 
         # -------------------------------------------------------------- #
         # Phase 5 — Fact-check one article per story, then broadcast     #
-        #   the result to every article in the same story cluster.        #
+        #   the result to every article in that story's group from this  #
+        #   batch only (not every DB row sharing that story_id — story   #
+        #   clustering is a similarity heuristic and does misfire; this  #
+        #   caps the blast radius of a bad match to the current run).    #
         # -------------------------------------------------------------- #
         await asyncio.gather(
-            *[_enrich_story(client, rep) for rep in representatives],
+            *[
+                _enrich_story(client, rep, [a["id"] for a in group])
+                for group, rep in zip(stories.values(), representatives)
+            ],
             return_exceptions=True,
         )
 
@@ -153,8 +159,10 @@ async def scrape(req: ScrapeRequest = ScrapeRequest()) -> dict:
     return {"scraped": len(saved), "stories": len(stories)}
 
 
-async def _enrich_story(client: httpx.AsyncClient, rep: dict) -> None:
-    """Fact-check the representative article and propagate to its whole story."""
+async def _enrich_story(client: httpx.AsyncClient, rep: dict, article_ids: list[int]) -> None:
+    """Fact-check the representative article and propagate to the rest of its
+    story group from this batch (article_ids), not every article that ever
+    shared its story_id."""
     async with _LLM_SEMAPHORE:
         analysis = await _fact_check(client, rep["title"], rep["content"], rep["summary"])
 
@@ -163,8 +171,9 @@ async def _enrich_story(client: httpx.AsyncClient, rep: dict) -> None:
 
     try:
         await client.put(
-            f"{NEWS_SERVICE_URL}/articles/story/{rep['story_id']}/enrich",
+            f"{NEWS_SERVICE_URL}/articles/enrich",
             json={
+                "article_ids":          article_ids,
                 "fact_check":           analysis.get("fact_check"),
                 "historical_context":   analysis.get("historical_context"),
                 "context_sources":      analysis.get("sources"),
