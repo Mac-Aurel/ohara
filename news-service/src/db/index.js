@@ -1,4 +1,6 @@
 import pg from 'pg';
+import { getEmbedding } from '../lib/embeddings.js';
+import { CATEGORIES } from '../lib/categories.js';
 
 const { Pool } = pg;
 
@@ -128,4 +130,23 @@ export async function initDB() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_article_chunks_article_id ON article_chunks (article_id)`);
 
   await pool.query(`ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS password_hash TEXT`);
+
+  await seedCategoriesIfEmpty();
+}
+
+// Fixed category taxonomy has no article-facing admin UI, so there's no
+// legitimate way for it to end up populated except this seed — safe to
+// skip whenever rows already exist (including ones added by a manual
+// `npm run seed-categories` re-seed).
+async function seedCategoriesIfEmpty() {
+  const { rows } = await pool.query('SELECT COUNT(*) FROM categories');
+  if (Number(rows[0].count) > 0) return;
+
+  for (const category of CATEGORIES) {
+    const embedding = await getEmbedding(category);
+    await pool.query(
+      'INSERT INTO categories (category, embedding) VALUES ($1, $2)',
+      [category, `[${embedding.join(',')}]`],
+    );
+  }
 }

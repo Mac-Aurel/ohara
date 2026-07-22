@@ -1,18 +1,6 @@
 import { pool } from '../db/index.js';
 import { getEmbedding } from '../lib/embeddings.js';
-
-const CATEGORIES = [
-  'Politics',
-  'World',
-  'Economics',
-  'Technology',
-  'Science',
-  'Health',
-  'Environment',
-  'Culture',
-  'Sports',
-  'Crime & Justice',
-];
+import { CATEGORIES } from '../lib/categories.js';
 
 async function replaceCategories(categories) {
   await pool.query('TRUNCATE TABLE categories');

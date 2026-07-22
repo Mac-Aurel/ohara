@@ -4,6 +4,7 @@ import { pool } from '../db/index.js';
 import { getEmbedding } from '../lib/embeddings.js';
 import { optionalAuth, requireAuth } from '../middleware/requireAuth.js';
 import { articleCommentsRouter } from './comments.js';
+import { CATEGORY_THRESHOLD } from '../lib/categories.js';
 
 const router = Router();
 
@@ -72,8 +73,6 @@ async function fetchArticleForUser(id, username) {
   return rows[0];
 }
 
-const CATEGORY_THRESHOLD = 0.6;
-
 router.get('/', optionalAuth, async (req, res) => {
   try {
     const page     = Math.max(1, parseInt(req.query.page,  10) || 1);
@@ -90,6 +89,9 @@ router.get('/', optionalAuth, async (req, res) => {
 
     const conditions = [];
     const params     = [];
+
+    params.push(CATEGORY_THRESHOLD);
+    const categoryThresholdParam = params.length;
 
     const categories = category ? String(category).split(',').map((c) => c.trim()).filter(Boolean) : [];
 
@@ -126,7 +128,9 @@ router.get('/', optionalAuth, async (req, res) => {
       book_recommendations, likes_count, liked_by, category, image_url,
       EXISTS (SELECT 1 FROM saved_articles sa WHERE sa.article_id = a.id AND sa.username = $${currentUserParam}) AS saved_by_user
       FROM articles a LEFT JOIN LATERAL
-      (SELECT * from categories ORDER BY a.embedding <=> embedding LIMIT 1) c ON true
+      (SELECT * FROM categories
+       WHERE a.embedding <=> embedding < $${categoryThresholdParam}
+       ORDER BY a.embedding <=> embedding LIMIT 1) c ON true
        ${where}
        ORDER BY ${topicsCondition}
        published_at DESC NULLS LAST

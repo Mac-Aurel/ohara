@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { pool } from '../db/index.js';
+import { CATEGORY_THRESHOLD } from '../lib/categories.js';
 
 const router = Router();
 
@@ -65,11 +66,13 @@ router.post('/search', async (req, res) => {
        LEFT JOIN vector_ranked v ON v.id = c.id
        LEFT JOIN keyword_ranked k ON k.id = c.id
        LEFT JOIN LATERAL
-         (SELECT category FROM categories ORDER BY a.embedding <=> embedding LIMIT 1) cat ON true
+         (SELECT category FROM categories
+          WHERE a.embedding <=> embedding < $5
+          ORDER BY a.embedding <=> embedding LIMIT 1) cat ON true
        WHERE v.id IS NOT NULL OR k.id IS NOT NULL
        ORDER BY score DESC
        LIMIT $3`,
-      [`[${queryEmbedding.join(',')}]`, queryText || '', limit, articleId],
+      [`[${queryEmbedding.join(',')}]`, queryText || '', limit, articleId, CATEGORY_THRESHOLD],
     );
 
     res.json(rows);
